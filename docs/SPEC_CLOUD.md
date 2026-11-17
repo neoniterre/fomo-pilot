@@ -54,3 +54,14 @@ Jamais d'exception ; en cas d'erreur : `ok=False`, valeurs `None`, `red_flags` =
 
 ## 4. Hors périmètre (c'est Elhadj/Claude chat qui s'en occupe)
 Choix du serveur, GitHub Actions « tick » planifié, stockage de l'état, budget, passage en live.
+
+## 5. Suite (Claude chat, 17/11/2026 après relecture de ton compte rendu) — lot 2
+1. **RugCheck est joignable depuis GitHub Actions** (HTTP 200, sans clé) : le souci de certificat est propre au PC d'Elhadj. Ne rien désactiver. En local, rester fail-closed.
+2. **Vraie fixture** : `docs/fixture_rugcheck_bonk.json` (réponse réelle, tronquée). Remplacer la fixture reconstruite de `test_security.py` par celle-ci
+   (attendu : top5 = 28.55, top10 = 38.45, `rugged` False, `freezeAuthority`/`mintAuthority` = `null` -> PAS d'alerte, un `warn` -> `warnings` seulement).
+   Attention : dans la vraie réponse `freezeAuthority`/`mintAuthority` sont présents avec valeur `null` (pas absents) : ton code doit traiter `null` = pas d'autorité.
+3. **Pools/LP identifiables** : un market RugCheck a `pubkey`, `liquidityAAccount`, `liquidityBAccount`, `mintLPAccount`... et un holder de pool a `address` = compte de token du pool.
+   Exclure des holders tout `topHolders[i]` dont `address` ou `owner` égale un `pubkey`, `liquidityAAccount` ou `liquidityBAccount` d'un market.
+   Pas observé sur BONK (aucun pool dans son top 20) : écrire un test avec une fixture synthétique. Si le champ est absent/inconnu -> garder le calcul brut (prudent).
+   Pourquoi c'est important : sur un memecoin récent, la courbe/le pool détient souvent 30-90 % du supply ; en calcul brut le bot refuserait presque tout.
+4. Garder les 7 fichiers de tests verts, commiter, pousser, et mettre à jour `docs/RAPPORT_CLAUDE_CODE.md`.

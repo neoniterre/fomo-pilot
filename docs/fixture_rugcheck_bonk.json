@@ -1,0 +1,91 @@
+{
+ "_note": "VRAIE réponse RugCheck (BONK) du 17/11/2026 via GitHub Actions, tronquée : 10 topHolders, markets réduits aux clés réelles. top5=28.55, top10=38.45.",
+ "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+ "rugged": false,
+ "freezeAuthority": null,
+ "mintAuthority": null,
+ "score_normalised": 7,
+ "totalHolders": 2112194,
+ "risks": [
+  {
+   "name": "Mutable metadata",
+   "value": "",
+   "description": "Token metadata can be changed by the owner",
+   "score": 100,
+   "level": "warn"
+  }
+ ],
+ "topHolders": [
+  {
+   "address": "2vPvEovB1gw8bAUqasThEv6YMAdJ77AU3RxiUNqknEiw",
+   "pct": 10.395100431567627,
+   "owner": "51yZyDSnec4xnUv7XLRVYcDyV4x3wUtzrDcRaYbmQU5j",
+   "insider": false
+  },
+  {
+   "address": "5hpfC9VBxVcoW9opCnM2PqR6YWRLBzrBpabJTZnwwNiw",
+   "pct": 9.485781897673,
+   "owner": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+   "insider": false
+  },
+  {
+   "address": "FNGhHbP4D9FtsiRpYXrr9mXjsegKJZ8exEvKAeUtgXPz",
+   "pct": 3.0423879395834033,
+   "owner": "EbLm4ZtRqDftrQnZaMMvnwcKjK5ef5vm1Hg3sAPv3tKi",
+   "insider": false
+  },
+  {
+   "address": "6jFRDDFQDCasLcWVMtixuu1eQCDnMhCttXktVeL7cEYM",
+   "pct": 2.9185907569602003,
+   "owner": "8Mm46CsqxiyAputDUp2cXHg41HE3BfynTeMBDwzrMZQH",
+   "insider": false
+  },
+  {
+   "address": "EHQPpncJDsLdpskV7EfrR6pCZRkCqJJNcvgPRsBQzq8E",
+   "pct": 2.7122271334770978,
+   "owner": "3B7XAQrLoEMDEGvX8569F9GRb9PcXXocJmj5wvhhei9z",
+   "insider": false
+  },
+  {
+   "address": "EkJbghrin4HbD2Bx8sGQ4LWyY8DDksTnxJDsq2Tj8Hqb",
+   "pct": 2.5113583536812802,
+   "owner": "DDrxSAP14UxBJ9Xz2EaqM9WSTuavX6SuBNtsDpiVhGr6",
+   "insider": false
+  },
+  {
+   "address": "3bYqu63xiF13prJMhwoxozTHGeRoLdkhWXyaJEfbsdCs",
+   "pct": 2.449442041978296,
+   "owner": "1tjoQzWg21ceMAhyLVs4s2Zc1Pm27mLTcJ9EfEFu7km",
+   "insider": false
+  },
+  {
+   "address": "8HKWzZ3tr886CsFN52Gt5Tk7gY2APkYh2ViAf95L8ZvE",
+   "pct": 2.2622561594242896,
+   "owner": "CJjCPXBnSt6wRoyi7wzcMj5NbWvmPtzxE2JpWDMTRxj4",
+   "insider": false
+  },
+  {
+   "address": "3G5o7G4EZFV6ayPHMMkigGRP51SgANqEUmCgu97X42x4",
+   "pct": 1.4242347989733408,
+   "owner": "AVPKzX2QZ8E23SWR728yhMTnnqr9UjAZdgemfaE3qHg5",
+   "insider": false
+  },
+  {
+   "address": "Ds3YuzGS7RVMJ85ddaGk6H1BZJZFAxAMxgcYe3JwPGHe",
+   "pct": 1.2490490604892184,
+   "owner": "Am8MAEorCMAKxphqjAz3Ff59NEwPm4W2eS3DQLi2B4hg",
+   "insider": false
+  }
+ ],
+ "markets": [
+  {
+   "pubkey": "<pool>",
+   "marketType": "<type>",
+   "liquidityAAccount": "<token account A>",
+   "liquidityBAccount": "<token account B>",
+   "lp": {
+    "lpLockedPct": 19.265487079219245
+   }
+  }
+ ]
+}
