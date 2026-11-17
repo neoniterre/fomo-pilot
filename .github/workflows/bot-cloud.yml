@@ -10,6 +10,9 @@ on:
       minutes:
         description: "durée du run en minutes (défaut 345)"
         default: "345"
+      chain:
+        description: "relancer automatiquement à la fin (false pour un simple test)"
+        default: "true"
 permissions:
   contents: write
   actions: write
@@ -72,7 +75,7 @@ jobs:
           tail -n 60 pilot.log | grep -v "HTTP Request" | sed -E 's#ntfy\.sh/[^ "]+#ntfy.sh/***#g' || true
 
       - name: Relance de la chaîne
-        if: always() && env.STOPPED != '1' && github.event_name != 'pull_request'
+        if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
