@@ -6,6 +6,28 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 17/11/2026 — lot 2 (`docs/SPEC_CLOUD.md` section 5)
+
+**Fait** (commit `af4155c`) — 7 fichiers de tests verts (58 tests, dont 15 dans `test_security.py`), sans réseau ni alerte ntfy.
+- **Vraie fixture** : `test_security.py` charge `docs/fixture_rugcheck_bonk.json`. Résultat : top5 28.55, top10 38.45,
+  `red_flags` vide, `warnings = ["warn: Mutable metadata"]`, `source = "rugcheck (aucun pool dans le top)"`. La fixture reconstruite est supprimée.
+- **Autorités `null`** : le code traitait déjà `null` comme « pas d'autorité » (`d.get(key)` -> None), c'est maintenant explicite
+  et testé : `null` ou `""` = pas d'alerte ; valeur = alerte ; **clé absente** = « inconnue » = alerte (choix prudent, inchangé).
+- **Pools exclus** : un `topHolders[i]` dont `address` ou `owner` égale `pubkey`, `liquidityAAccount` ou `liquidityBAccount`
+  d'un market est retiré avant le calcul. `markets` absent, pas une liste, ou sans ces champs -> rien d'exclu (calcul brut,
+  noté dans `source`). Je n'ai **pas** utilisé `mintLPAccount` (pas dans ta règle).
+- Tests synthétiques : vault à 62 % (`address` = `liquidityAAccount`) + compte à 9 % dont `owner` = `pubkey` -> exclus,
+  top5 = 13.0 ; `markets` absent ou illisible -> calcul brut (top5 80.5, donc refusé) ; 11 holders - 2 pools = 9 -> top10 `None`.
+
+**À savoir / à vérifier de ton côté** :
+1. `topHolders` contient 20 entrées dans la vraie réponse : après exclusion d'un ou deux pools il en reste assez pour top10.
+   Ta fixture n'en a gardé que 10, donc sur BONK aucun cas « pool exclu » n'est vérifié en réel.
+2. La fixture a des valeurs fictives dans `markets` (`"<pool>"`, `"<token account A>"`...) : sans effet sur BONK, mais une
+   vraie réponse d'un memecoin récent **avec** son pool dans le top serait le meilleur test (même sonde, autre mint).
+3. Toujours pas de run `--cloud` de bout en bout (Chromium headless non installé sur le PC).
+
+---
+
 ## 17/11/2026 — mode cloud (`docs/SPEC_CLOUD.md`)
 
 **Fait** (commits `43b6cce`, `b19d917`) — 7 fichiers de tests verts (55 tests), sans réseau, sans alerte ntfy envoyée.
