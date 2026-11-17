@@ -452,14 +452,22 @@ class FomoPilot:
         for attempt in (1, 2):
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                await page.wait_for_function(
-                    f"document.body && document.body.innerText.includes('{marker}')",
-                    timeout=15000, polling=500)
             except Exception as e:
-                logger.info("SCAN: attente de la liste %s (essai %d) : %s", path, attempt, str(e)[:80])
-            text = await page.evaluate("document.body ? document.body.innerText : ''")
-            if marker in text:
-                return text
+                logger.info("SCAN: chargement de %s (essai %d) : %s", path, attempt, str(e)[:80])
+            # Poll with page.evaluate: fomo's CSP forbids wait_for_function (string eval).
+            # Ready = the rows are rendered (parse finds tokens), not just the table header.
+            deadline = time.time() + 15
+            while True:
+                try:
+                    text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+                except Exception:
+                    text = ""
+                if marker in text and parse_fomo_list(text):
+                    return text
+                if time.time() >= deadline:
+                    break
+                await asyncio.sleep(0.5)
+            logger.info("SCAN: liste %s pas encore affichée (essai %d)", path, attempt)
             if attempt == 1:
                 try:
                     await page.bring_to_front()      # background tabs get throttled by Chrome

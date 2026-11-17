@@ -15,7 +15,8 @@ class Notifier:
     BASE = "https://ntfy.sh"
 
     def __init__(self, topic: str | None = None, dedupe_s: float = 60.0):
-        self.topic = (topic or os.getenv("NTFY_TOPIC") or "").strip()
+        # None = read NTFY_TOPIC from .env ; "" = explicitly disabled (tests: never hit the network)
+        self.topic = ((os.getenv("NTFY_TOPIC") if topic is None else topic) or "").strip()
         self.dedupe_s = dedupe_s
         self.sent = {}
         self.errors = 0

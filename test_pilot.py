@@ -164,6 +164,38 @@ def test_exec_ui_paper_without_navigate_never_clicks():
     assert page.log == []
 
 
+class FakeListPage:
+    """fomo list tab: the table header shows first, rows a bit later. No wait_for_function on purpose:
+    fomo's CSP blocks it (17/11/2026), _read_list must poll with evaluate()."""
+
+    def __init__(self, texts):
+        self.texts, self.gotos = list(texts), 0
+        self.url = "https://fomo.family/top-movers"
+
+    async def goto(self, url, **kw):
+        self.gotos += 1
+
+    async def evaluate(self, js):
+        return self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+
+    async def bring_to_front(self):
+        pass
+
+
+def test_read_list_waits_for_rows_without_wait_for_function():
+    from test_scanner import TOP_MOVERS_TABLE
+    header_only = TOP_MOVERS_TABLE.split("1\t")[0]          # "Position in this view" but no rows yet
+    real_sleep = pilot.asyncio.sleep
+    pilot.asyncio.sleep = _no_sleep
+    try:
+        fp = bare_pilot()
+        page = FakeListPage(["", header_only, header_only, TOP_MOVERS_TABLE])
+        text = asyncio.run(fp._read_list(page, "top-movers"))
+    finally:
+        pilot.asyncio.sleep = real_sleep
+    assert text == TOP_MOVERS_TABLE and page.gotos == 1      # waited for the rows, no reload needed
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):

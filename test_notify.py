@@ -11,6 +11,22 @@ def test_disabled_without_topic():
     assert not n.enabled and asyncio.run(n.send("t", "m")) is False
 
 
+def test_empty_topic_disables_even_with_env():
+    """Tests pass Notifier("") : it must NOT fall back to the real NTFY_TOPIC (17/11/2026: tests
+    sent real "Chrome fermé" alerts to the phone)."""
+    import os
+    old = os.environ.get("NTFY_TOPIC")
+    os.environ["NTFY_TOPIC"] = "real-topic-must-not-be-used"
+    try:
+        assert not Notifier("").enabled
+        assert Notifier().enabled and Notifier().topic == "real-topic-must-not-be-used"
+    finally:
+        if old is None:
+            os.environ.pop("NTFY_TOPIC", None)
+        else:
+            os.environ["NTFY_TOPIC"] = old
+
+
 def test_never_raises_and_counts_errors():
     import sys, types
     fake = types.ModuleType("httpx")
