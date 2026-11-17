@@ -17,13 +17,14 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 ## Architecture
 | Fichier | Rôle |
 |---|---|
-| `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. |
+| `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. Garde-fous clics : `ui_gate` (texte du sélecteur) puis `element_gate` (texte RÉEL de l'élément, du bouton parent et du submit du formulaire, juste avant le clic). Ne jamais les affaiblir. |
 | `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`, `save_history` / `load_history` (`history.json`). |
 | `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
 | `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
-| `test_*.py` | Tests sans réseau ni clé (`test_pilot.py` : reconnexion Chrome avec un faux navigateur). **Doivent passer avant chaque commit. Ne jamais supprimer un test.** |
+| `test_*.py` | Tests sans réseau ni clé (`test_pilot.py` : reconnexion Chrome et garde-fou des clics avec un faux navigateur). Lancés aussi sur GitHub Actions à chaque push (`.github/workflows/tests.yml`). **Doivent passer avant chaque commit. Ne jamais supprimer un test.** |
+| `requirements.txt` | Versions exactes des paquets du venv (`pip install -r requirements.txt`). |
 | `history.json` | Relevés de prix / volume sauvegardés (la variation 30 min survit à un redémarrage, ignoré si > 90 min). Exclu de git. |
 
 ## Commandes (Windows, dans le dossier du projet)

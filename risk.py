@@ -111,6 +111,26 @@ def ui_gate(selector: str, value: str, act: str, pending: dict | None):
     return True, value, "ok"
 
 
+def _words(text: str) -> str:
+    """'BuyButton buy_btn data-sell' -> 'Buy Button buy btn data sell' (so \\b word checks see them)."""
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text or "")
+    return re.sub(r"[_\-/.:#]+", " ", text)
+
+
+def element_gate(element_desc: str, act: str, pending: dict | None):
+    """Second check, on the REAL element about to be clicked / typed into (its text, aria-label, title,
+    id, class, href... and those of the button / link around it). Catches a Buy button reached through
+    a CSS selector that contains no trade word. Fail-closed. Returns (allowed, why)."""
+    desc = _words(element_desc).strip()
+    if FORBIDDEN.search(desc):
+        return False, "forbidden word on the element"
+    if TRADE_WORDS.search(desc) and not pending:
+        return False, "element is a trade control and no trade is approved"
+    if act == "click" and not desc and not pending:
+        return False, "element has no readable text / label: unknown action"
+    return True, "ok"
+
+
 class RiskManager:
     def __init__(self, rules: Rules, capital: float, state_path="state.json",
                  trade_log="trades.jsonl", today_fn=None):

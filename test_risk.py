@@ -132,6 +132,25 @@ def test_ui_gate():
     assert ui_gate("Confirm", "", "click", pend)[0]
 
 
+def test_element_gate():
+    from risk import element_gate
+    # CSS selector "#x1" passes ui_gate, but the real element is a Buy button -> blocked
+    assert ui_gate("#x1", "", "click", None)[0]
+    assert not element_gate("Buy now", "click", None)[0]
+    assert not element_gate("css-9f1 BuyButton", "click", None)[0]       # camelCase class
+    assert not element_gate("btn buy_btn", "click", None)[0]              # snake_case class
+    assert not element_gate("Acheter 1.33 $", "click", None)[0]
+    assert not element_gate("Withdraw funds", "click", {"amount_str": "1"})[0]   # never, even approved
+    assert not element_gate("", "click", None)[0]                         # unknown icon: fail-closed
+    assert not element_gate("Amount Buy", "type", None)[0]                # input inside a Buy form
+    # harmless navigation still works
+    assert element_gate("Trending /trending", "click", None)[0]
+    assert element_gate("Search tokens search", "type", None)[0]
+    assert element_gate("GTA VI GTA6 /t/gta6", "click", None)[0]
+    # with an approved trade (live only), trade controls are allowed
+    assert element_gate("Confirm", "click", {"amount_str": "1.33"})[0]
+
+
 def test_holders_proxy_and_red_flags():
     m = rm()
     base = {k: v for k, v in GOOD.items() if k != "top5_holders_pct"}

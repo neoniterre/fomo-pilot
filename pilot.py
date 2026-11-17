@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
 from reader import BtcChange
-from risk import CONFIRM_WORDS, RiskManager, Rules, ui_gate
+from risk import CONFIRM_WORDS, RiskManager, Rules, element_gate, ui_gate
 from scanner import (Dex, PriceHistory, load_history, save_history, VolumeTracker, group_pairs, metrics_from_group,
                      parse_fomo_list, resolve_token)
 
@@ -98,6 +98,26 @@ Return ONLY one JSON object, no markdown:
  "ui_action": {"action": "click" | "type" | "none", "selector": "visible text / placeholder", "value": ""},
  "reason": "short"}
 Plain numbers only. If a number is not clearly visible use null. NEVER guess."""
+
+
+# Describes the element about to be clicked: itself, the button/link around it, and the submit
+# button of its form (clicking inside a Buy form must be seen as a trade action).
+ELEMENT_DESC_JS = """
+e => {
+  const parts = [];
+  const add = el => {
+    if (!el) return;
+    for (const a of ['aria-label', 'title', 'id', 'name', 'href', 'type', 'data-testid', 'class'])
+      parts.push(el.getAttribute(a) || '');
+    parts.push(el.innerText || '', el.value || '');
+  };
+  add(e);
+  add(e.closest('button, a, [role="button"]'));
+  const form = e.closest('form');
+  if (form) add(form.querySelector('button[type="submit"], input[type="submit"]'));
+  return parts.join(' ').replace(/\\s+/g, ' ').trim().slice(0, 2000);
+}
+"""
 
 
 class FatalAPIError(Exception):
@@ -327,17 +347,26 @@ class FomoPilot:
             return False
         try:
             if act == "click":
-                await self._locator(selector).click(timeout=5000)
+                target = self._locator(selector)
             elif act == "type":
-                t = self.page.get_by_placeholder(selector, exact=False).first
-                if await t.count() == 0:
-                    t = self.page.get_by_label(selector, exact=False).first
-                if await t.count() == 0:
-                    t = self.page.locator("input:visible").first
-                await t.fill(value, timeout=5000)
+                target = self.page.get_by_placeholder(selector, exact=False).first
+                if await target.count() == 0:
+                    target = self.page.get_by_label(selector, exact=False).first
+                if await target.count() == 0:
+                    target = self.page.locator("input:visible").first
             else:
                 logger.warning("Unsupported UI action: %s", act)
                 return False
+            # 2nd gate: what the element REALLY is, whatever the selector says
+            desc = await target.evaluate(ELEMENT_DESC_JS, timeout=5000)
+            ok, why = element_gate(desc, act, self.pending)
+            if not ok:
+                logger.warning("UI BLOCKED (%s): %s | %s | element: %s", why, act, selector, str(desc)[:120])
+                return False
+            if act == "click":
+                await target.click(timeout=5000)
+            else:
+                await target.fill(value, timeout=5000)
             logger.info("UI done: %s | %s | %s", act, selector, value)
             return True
         except Exception as e:

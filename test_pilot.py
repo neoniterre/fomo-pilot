@@ -99,6 +99,69 @@ def test_recover_gives_up():
         pilot.asyncio.sleep = real_sleep
 
 
+class FakeTarget:
+    """Playwright locator stand-in: `desc` is what ELEMENT_DESC_JS would return."""
+
+    def __init__(self, desc, log):
+        self.desc, self.log, self.first = desc, log, self
+
+    async def count(self):
+        return 1
+
+    async def evaluate(self, js, timeout=None):
+        return self.desc
+
+    async def click(self, timeout=None):
+        self.log.append(("click", self.desc))
+
+    async def fill(self, value, timeout=None):
+        self.log.append(("fill", value))
+
+
+class FakeUiPage:
+    def __init__(self, elements):
+        self.elements, self.log = elements, []
+
+    def locator(self, selector):
+        return FakeTarget(self.elements.get(selector, ""), self.log)
+
+    def get_by_text(self, text, exact=False):
+        return FakeTarget(self.elements.get(text, ""), self.log)
+
+    get_by_placeholder = get_by_label = get_by_text
+
+
+def ui_pilot(page, navigate=True, live=False):
+    fp = bare_pilot()
+    fp.page, fp.pending, fp.live = page, None, live
+    fp.args.navigate = navigate
+    return fp
+
+
+def test_exec_ui_checks_the_real_element():
+    page = FakeUiPage({
+        "#x1": "Buy now",                       # CSS selector hiding a Buy button
+        "div > span.css-3k": "",                # icon with no text
+        "Trending": "Trending /trending",
+        "Search": "Search tokens",
+    })
+    fp = ui_pilot(page)
+    run = lambda ui: asyncio.run(fp.exec_ui(ui))
+    assert run({"action": "click", "selector": "#x1"}) is False
+    assert run({"action": "click", "selector": "div > span.css-3k"}) is False
+    assert page.log == []                                   # nothing was clicked
+    assert run({"action": "click", "selector": "Trending"}) is True
+    assert run({"action": "type", "selector": "Search", "value": "GTA6"}) is True
+    assert page.log == [("click", "Trending /trending"), ("fill", "GTA6")]
+
+
+def test_exec_ui_paper_without_navigate_never_clicks():
+    page = FakeUiPage({"Trending": "Trending"})
+    fp = ui_pilot(page, navigate=False)
+    assert asyncio.run(fp.exec_ui({"action": "click", "selector": "Trending"})) is False
+    assert page.log == []
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):
