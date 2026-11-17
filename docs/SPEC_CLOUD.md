@@ -43,5 +43,14 @@ Jamais d'exception ; en cas d'erreur : `ok=False`, valeurs `None`, `red_flags` =
 - Fixture GoPlus (USDT : `percent` fraction) -> conversion en %. Honeypot, taxe élevée, chaîne inconnue, JSON cassé, HTTP 429, timeout -> `ok=False` ou flag, jamais d'exception.
 - Ajouter le test à `lancer_bot.bat`, `.github/workflows/tests.yml`, `CLAUDE.md`.
 
+## 3 bis. Résultat de la sonde fomo (GitHub Actions, 17/11/2026) — question ouverte RÉSOLUE
+- Un simple GET HTTP ne marche pas (la liste n'est pas dans le HTML). **Chromium headless Playwright marche sans login** : `tools/probe_fomo.py`
+  lit 20 tokens en ~2 s avec `new_context(bypass_csp=True)` + `inner_text("body")` en boucle (pas de `wait_for_function`).
+- **BUG probable dans `pilot.py` (`_read_list`)** : `page.wait_for_function("<chaîne JS>")` échoue sur fomo avec
+  `EvalError: Evaluating a string as JavaScript violates the following Content Security Policy`. Ça peut expliquer les « page illisible / 0 token » vus en local.
+  Corriger : remplacer par une boucle `inner_text("body")` (+ petit défilement `mouse.wheel`) jusqu'à voir « Position in this view », timeout ~30 s.
+  Dans le Chrome de l'utilisateur on ne peut pas mettre `bypass_csp` sur un contexte existant : la boucle de polling suffit.
+- Donc pour `--cloud` : Chromium headless (nouveau contexte, `bypass_csp=True`), jamais de connexion à fomo.
+
 ## 4. Hors périmètre (c'est Elhadj/Claude chat qui s'en occupe)
 Choix du serveur, GitHub Actions « tick » planifié, stockage de l'état, budget, passage en live.
