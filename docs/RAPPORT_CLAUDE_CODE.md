@@ -6,6 +6,39 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 17/11/2026 — dépôt public : logs, résumé cloud, garde-fou
+
+**Fait** (commits `d25015d`, `d937d32`, `e1a4e4b`, `cd488cb`) — 8 fichiers de tests verts (68 tests), sans réseau ni alerte ntfy.
+1. **Logs** : `httpx` et `httpcore` en WARNING dans `pilot.py` (constante `QUIET_HTTP_LOGGERS`). Avant, chaque requête
+   réussie était loggée en INFO, y compris `https://ntfy.sh/<canal secret>`, dans `pilot.log` ET sur la console, donc
+   dans les **logs publics** de `bot-cloud.yml` (GitHub masque normalement la valeur du secret, mais on ne compte pas
+   dessus). Test `test_http_loggers_quiet_and_ntfy_url_never_logged` : vrai httpx + transport simulé, l'URL n'est jamais
+   loggée ; contrôle inverse : en INFO elle l'est. Les erreurs HTTP restent loggées. Les lignes « HTTP Request »
+   DexScreener disparaissent aussi (`summary.py` ne s'en servait pas).
+2. **`summary.py --cloud`** + `resume_cloud.bat` : lit sans clé `raw.githubusercontent.com/neoniterre/fomo-pilot/data/`
+   (`state.json`, `trades.jsonl`, `STOP`) en `urllib` (stdlib). Même résumé qu'en local + derniers trades. Réseau coupé,
+   404, 5xx, JSON cassé ou mal formé -> message clair, jamais d'exception. `--watch` = 60 s en cloud. **Choix prudent
+   ajouté** : affiche « Arrêt d'urgence demandé » si `STOP` existe. `test_summary.py` (7 tests, faux fetch). Essai réel
+   OK : capital 20.00, aucune position, pas encore de `trades.jsonl`.
+3. **Garde-fou** : `test_cloud_never_live_cli_and_workflows` (`test_security.py`) : `pilot.py --auto --cloud --live` sort en
+   code 1 ; `bot-cloud.yml` lance bien `pilot.py --auto --cloud` ; **aucun** workflow ne contient `--live` ni
+   `--auto-entry` (choix prudent : tous les workflows, pas seulement `bot-cloud.yml`).
+4. **CLAUDE.md** : dépôt public (aucun secret dans git ni dans les logs), secret `NTFY_TOPIC`, `bot-cloud.yml`
+   (~5 h 45 + relance, cron 6 h, état sur `data` toutes les 15 min, arrêt d'urgence = `STOP` sur `data`),
+   `summary.py --cloud`, état : mode cloud FAIT, reste à valider une entrée simulée complète dans le cloud.
+
+**Vérifié avant tout** : historique git complet (toutes branches) sans clé API, sans canal ntfy, `.env` jamais commité ;
+la branche `data` ne contient que `state.json` et `history.json`. Je n'ai touché ni à `data`, ni aux secrets, ni au `.env`.
+
+**Remarques pour toi** (non modifié, hors demande) :
+- `bot-cloud.yml` installe `httpx playwright python-dotenv` **sans versions** (pas `requirements.txt`) et en Python 3.12 :
+  une nouvelle version d'un paquet peut casser le bot sans prévenir. Proposition : `pip install -r requirements.txt`
+  (ou au moins épingler ces 3 versions) ; `tests.yml` tourne déjà avec `requirements.txt`.
+- Le `pilot.log` local d'Elhadj contient encore l'URL ntfy des runs d'avant le correctif (fichier local, exclu de git,
+  Elhadj a choisi de le laisser tel quel).
+
+---
+
 ## 17/11/2026 — pools réels (`docs/SPEC_CLOUD.md` section 6)
 
 **Fait** (commit `e76ac7d`) — 7 fichiers de tests verts (59 tests, dont 16 dans `test_security.py`), sans réseau ni alerte ntfy.
