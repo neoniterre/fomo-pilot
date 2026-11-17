@@ -19,7 +19,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 |---|---|
 | `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. |
 | `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`. |
-| `reader.py` | Lecture du texte de page par code, variation BTC 1h (CoinGecko). |
+| `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
 | `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
@@ -48,8 +48,7 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 - Après une correction : lancer les 3 tests, puis commiter. Garder `summary.py` aligné avec les lignes de log.
 
 ## État / à faire (priorité)
-1. **Fiabilité** : quitter proprement si Chrome est fermé (aujourd'hui boucle d'erreurs infinie), 2e source gratuite pour le BTC 1h
-   (CoinGecko devient illisible), délais plus tolérants sur les pages fomo, sauvegarde de `PriceHistory` sur disque.
+1. **Fiabilité** : FAIT (reconnexion si Chrome fermé, BTC 3 sources, `history.json`). Reste : délais fomo plus tolérants.
 2. **Gardien + démarrage automatique** (relance du bot et de Chrome debug, planificateur Windows).
 3. **Alertes téléphone** (ntfy ou Telegram) + rapport de fin de journée.
 4. **Mode cloud** (sans PC) : top holders / alertes via API de sécurité (RugCheck pour Solana, GoPlus pour EVM), exécution

@@ -10,7 +10,7 @@ echo.
 echo === Lancement du bot (PAPER, seuils 30min=20 et 1h=50) ===
 echo Chrome doit etre ouvert en mode debug. Ctrl+C pour arreter.
 echo.
-venv\Scripts\python.exe pilot_v5.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
+venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 echo.
 echo Le bot s est arrete. Si une erreur est affichee ci-dessus, copie-la.
 pause

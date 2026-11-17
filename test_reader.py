@@ -57,6 +57,33 @@ def test_provider_and_risk_end_to_end():
     d = json.loads(asyncio.run(tv.ask("", "UI Snapshot:\n" + json.dumps(ui))))
     assert rm.process(d)["entry"] is None
 
+
+def test_btc_parsers():
+    from reader import parse_binance_klines, parse_kraken_ohlc
+    rows = [[0, "100.0", 0, 0, "100.5"]] + [[i, "100", 0, 0, "101"] for i in range(1, 60)] + [[60, "101", 0, 0, "99.0"]]
+    assert parse_binance_klines(rows) == -1.0                       # open 100 -> close 99
+    assert parse_binance_klines(rows[:10]) is None                  # too few candles
+    assert parse_binance_klines("junk") is None
+    k = [[i, "200", 0, 0, "202"] for i in range(70)]
+    k[-1][4] = "210"
+    assert parse_kraken_ohlc({"result": {"XXBTZUSD": k, "last": 1}}) == 5.0
+    assert parse_kraken_ohlc({"result": {}}) is None and parse_kraken_ohlc(None) is None
+
+
+def test_btc_fallback_and_stale():
+    import asyncio
+    from reader import BtcChange
+    b = BtcChange(ttl=0, stale_s=600)
+    seq = iter([("binance", -2.0), (None, None), (None, None)])
+    async def fake():
+        return next(seq)
+    b._fetch = fake
+    assert asyncio.run(b.get()) == -2.0 and b.source == "binance"
+    assert asyncio.run(b.get()) == -2.0                              # all sources down: recent value reused
+    b.good_t -= 1000
+    assert asyncio.run(b.get()) is None                              # too old -> fail-closed
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):

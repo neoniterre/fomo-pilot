@@ -31,7 +31,7 @@ from playwright.async_api import async_playwright
 
 from reader import BtcChange
 from risk import CONFIRM_WORDS, RiskManager, Rules, ui_gate
-from scanner import (Dex, PriceHistory, VolumeTracker, group_pairs, metrics_from_group,
+from scanner import (Dex, PriceHistory, load_history, save_history, VolumeTracker, group_pairs, metrics_from_group,
                      parse_fomo_list, resolve_token)
 
 load_dotenv()
@@ -231,6 +231,11 @@ class FomoPilot:
         self.api_errors = 0
         self.dex, self.btc, self.voltrack, self.hist = Dex(), BtcChange(), VolumeTracker(), PriceHistory()
         self.target, self.queue, self.last_scan, self.cooldown = None, [], 0.0, {}
+        self.browser = None
+        self.history_file = os.path.join(os.path.dirname(os.path.abspath(args.state_file)) or ".", "history.json")
+        n = load_history(self.history_file, self.hist, self.voltrack)
+        if n:
+            logger.info("Historique de prix rechargé (%d tokens) : pas besoin de refaire les 30 min d'attente.", n)
         rules = Rules()
         rules.max_positions = args.max_positions
         rules.min_change_1h = getattr(args, "min_1h", rules.min_change_1h)
@@ -447,7 +452,7 @@ class FomoPilot:
 
         btc = await self.btc.get()
         if btc is None:
-            logger.warning("SCAN: BTC 1h unreadable (CoinGecko), all entries will be refused this round")
+            logger.warning("SCAN: BTC 1h illisible (Binance, Kraken et CoinGecko ont échoué), entrées refusées ce tour")
         stats, cands, err0, now, warm = Counter(), [], self.dex.errors, time.time(), 0
         for it in items:
             pairs = await self.dex.search(it["symbol"])
@@ -467,6 +472,7 @@ class FomoPilot:
                 stats["filtres desk"] += 1
                 continue
             cands.append({"symbol": it["symbol"], "chain": g["chain"], "address": g["address"], "metrics": m})
+        save_history(self.history_file, self.hist, self.voltrack)
         logger.info("SCAN: %d tokens lus | historique 30 min prêt : %d | écartés : %s | erreurs API : %d | candidats : %s",
                     len(items), warm, dict(stats) or "aucun", self.dex.errors - err0,
                     ", ".join(c["symbol"] for c in cands) or "aucun")
@@ -560,17 +566,49 @@ class FomoPilot:
         if self.target:
             await self.verify_target(await self.take_snapshot())
 
+    # ---------- browser lost ----------
+    def _browser_dead(self) -> bool:
+        try:
+            return (self.browser is not None and not self.browser.is_connected()) or \
+                   (self.page is not None and self.page.is_closed())
+        except Exception:
+            return True
+
+    async def _recover(self, p) -> bool:
+        """Chrome was closed: keep watching open positions through DexScreener (no browser needed)
+        and retry the connection every 30 s. Gives up after --reconnect-min minutes."""
+        logger.error("ATTENTION: Chrome fermé / déconnecté. Je surveille les positions et je réessaie toutes les 30 s.")
+        deadline = time.time() + self.args.reconnect_min * 60
+        while time.time() < deadline and self.running:
+            try:
+                if self.args.auto:
+                    await self.watch_positions()
+                browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+                ctx = browser.contexts[0]
+                self.browser = browser
+                self.page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                await self.page.goto("https://fomo.family", wait_until="domcontentloaded")
+                logger.info("Chrome reconnecté, reprise.")
+                self.target = None
+                return True
+            except Exception as e:
+                logger.info("Chrome toujours indisponible (%s)", str(e)[:60])
+            await asyncio.sleep(30)
+        return False
+
     # ---------- main loop ----------
     async def run(self):
         async with async_playwright() as p:
             try:
                 browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+                self.browser = browser
                 ctx = browser.contexts[0]
                 self.page = ctx.pages[0] if ctx.pages else await ctx.new_page()
                 logger.info("Connected to existing Chrome (CDP).")
             except Exception:
                 logger.info("No Chrome in debug mode - launching a new one")
                 browser = await p.chromium.launch(headless=False, channel="chrome")
+                self.browser = browser
                 self.page = await (await browser.new_context()).new_page()
 
             await self.page.goto("https://fomo.family", wait_until="domcontentloaded")
@@ -616,6 +654,12 @@ class FomoPilot:
                     break
                 except Exception as e:
                     logger.error("Cycle error: %s", e)
+                    if self._browser_dead():
+                        if not await self._recover(p):
+                            logger.error("STOPPING: Chrome est fermé depuis trop longtemps. Relance Chrome en "
+                                         "mode debug puis le bot.")
+                            break
+                        continue
                     await asyncio.sleep(5)
             logger.info("Pilot stopped. %s", self.risk.status())
             if self.risk.positions:
@@ -629,6 +673,8 @@ def parse_args():
                     help="text = free, reads the page text with code (default)")
     ap.add_argument("--model", default="", help=f"default for anthropic: {DEFAULT_ANTHROPIC_MODEL}")
     ap.add_argument("--list-models", action="store_true", help="xai only: list models with image input")
+    ap.add_argument("--reconnect-min", type=float, default=30,
+                    help="minutes to keep retrying if Chrome is closed before stopping")
     ap.add_argument("--capital", type=float, default=20, help="Capital in $ (used for risk sizing)")
     ap.add_argument("--max-positions", type=int, default=5)
     ap.add_argument("--navigate", action="store_true", help="paper mode but allow harmless navigation clicks")

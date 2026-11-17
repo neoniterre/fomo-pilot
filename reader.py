@@ -83,24 +83,87 @@ def extract_token(title: str, url: str, text: str) -> str | None:
     return tail[:20] or None
 
 
-class BtcChange:
-    """BTC 1h % change from CoinGecko's public endpoint (cached). None if unavailable -> entries refused."""
+def _f(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if v == v and v > 0 else None
 
-    def __init__(self, ttl: float = 120):
-        self.ttl, self.t, self.v = ttl, 0.0, None
+
+def parse_binance_klines(rows):
+    """1-minute klines [[openTime, open, high, low, close, ...], ...] -> % change over ~1h (needs >= 60 rows)."""
+    try:
+        if len(rows) < 60:
+            return None
+        old, new = _f(rows[0][1]), _f(rows[-1][4])
+        return round((new / old - 1) * 100, 3) if old and new else None
+    except Exception:
+        return None
+
+
+def parse_kraken_ohlc(data):
+    """Kraken OHLC (1m) -> % change over ~1h (needs >= 60 candles)."""
+    try:
+        res = data.get("result") or {}
+        rows = next(v for k, v in res.items() if k != "last" and isinstance(v, list))
+        if len(rows) < 61:
+            return None
+        old, new = _f(rows[-61][1]), _f(rows[-1][4])
+        return round((new / old - 1) * 100, 3) if old and new else None
+    except Exception:
+        return None
+
+
+class BtcChange:
+    """BTC 1h % change, 3 free public sources tried in order (Binance, Kraken, CoinGecko), cached.
+    A last good value up to `stale_s` old is reused if all sources fail; beyond that None -> entries refused."""
+
+    def __init__(self, ttl: float = 120, stale_s: float = 600):
+        self.ttl, self.stale_s = ttl, stale_s
+        self.t, self.v = 0.0, None
+        self.good_t, self.good_v, self.source = 0.0, None, None
+
+    async def _fetch(self):
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as h:
+            for name, call in (("binance", self._binance), ("kraken", self._kraken), ("coingecko", self._gecko)):
+                try:
+                    v = await call(h)
+                except Exception:
+                    v = None
+                if v is not None:
+                    return name, v
+        return None, None
+
+    @staticmethod
+    async def _binance(h):
+        r = await h.get("https://api.binance.com/api/v3/klines",
+                        params={"symbol": "BTCUSDT", "interval": "1m", "limit": 61})
+        return parse_binance_klines(r.json())
+
+    @staticmethod
+    async def _kraken(h):
+        r = await h.get("https://api.kraken.com/0/public/OHLC", params={"pair": "XBTUSD", "interval": 1})
+        return parse_kraken_ohlc(r.json())
+
+    @staticmethod
+    async def _gecko(h):
+        r = await h.get("https://api.coingecko.com/api/v3/coins/markets",
+                        params={"vs_currency": "usd", "ids": "bitcoin", "price_change_percentage": "1h"})
+        return float(r.json()[0]["price_change_percentage_1h_in_currency"])
 
     async def get(self):
-        if time.time() - self.t < self.ttl:
+        now = time.time()
+        if now - self.t < self.ttl:
             return self.v
-        self.t = time.time()
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10) as h:
-                r = await h.get("https://api.coingecko.com/api/v3/coins/markets",
-                                params={"vs_currency": "usd", "ids": "bitcoin",
-                                        "price_change_percentage": "1h"})
-                self.v = float(r.json()[0]["price_change_percentage_1h_in_currency"])
-        except Exception:
+        self.t = now
+        name, v = await self._fetch()
+        if v is not None:
+            self.good_t, self.good_v, self.source, self.v = now, v, name, v
+        elif self.good_v is not None and now - self.good_t <= self.stale_s:
+            self.v = self.good_v
+        else:
             self.v = None
         return self.v
 

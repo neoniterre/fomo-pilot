@@ -14,63 +14,35 @@ Fail-closed everywhere: anything unreadable becomes None and risk.py refuses the
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 import time
 
 from reader import parse_number
 
 BLOCK = re.compile(r"Position in this view:\s*\d+")
-PRICE_LINE = re.compile(r"^\$[\d.,]+[KMBkmb]?$")
-TABLE_START = re.compile(r"^buy asset$", re.IGNORECASE)
 
 
 # --------------------------------------------------------------------------- fomo lists
-def _parse_block(lines: list[str]) -> dict | None:
-    """One token: [name, symbol, ..., $price, ..., ▲/▼, pct%, ...] -> item, or None."""
-    if len(lines) < 4:
-        return None
-    price, change = None, None
-    for i, l in enumerate(lines):
-        if price is None and PRICE_LINE.match(l):
-            price = parse_number(l)
-        if change is None and l in ("▲", "▼") and i + 1 < len(lines):
-            v = parse_number(lines[i + 1].replace("%", ""))
-            if v is not None:
-                change = -v if l == "▼" else v
-    return {"name": lines[0], "symbol": lines[1], "price": price, "change_24h_pct": change}
-
-
-def _clean_lines(text: str) -> list[str]:
-    return [l.strip() for l in (text or "").splitlines() if l.strip()]
-
-
 def parse_fomo_list(text: str) -> list[dict]:
-    """fomo.family/top-movers, /new ... -> [{name, symbol, price, change_24h_pct}]
-
-    Two layouts exist:
-      - cards: one "Position in this view: N" before each token (mobile / older layout)
-      - table: the label appears once in the header, then each row starts with its rank
-        on its own line ("1", "2", ...) after the "Buy asset" header cell.
-    """
-    blocks = BLOCK.split(text or "")
-    if len(blocks) > 2:  # card layout: the label repeats for each token
-        return [it for b in blocks[1:] if (it := _parse_block(_clean_lines(b)))]
-
-    lines = _clean_lines(text)
-    start = next((i + 1 for i, l in enumerate(lines) if TABLE_START.match(l)), 0)
-    rows, cur, expected = [], None, 1
-    for l in lines[start:]:
-        if l == str(expected):          # next rank: a new row starts
-            if cur is not None:
-                rows.append(cur)
-            cur, expected = [], expected + 1
-        elif cur is not None:
-            cur.append(l)
-    if cur is not None:
-        rows.append(cur)
-    items = [it for r in rows if (it := _parse_block(r))]
-    if not items and len(blocks) == 2:  # card layout with a single token
-        items = [it for it in [_parse_block(_clean_lines(blocks[1]))] if it]
+    """fomo.family/top-movers, /new ... -> [{name, symbol, price, change_24h_pct}]"""
+    items = []
+    for blk in BLOCK.split(text or "")[1:]:
+        lines = [l.strip() for l in blk.splitlines() if l.strip()]
+        if len(lines) < 4:
+            continue
+        price, change = None, None
+        for i, l in enumerate(lines):
+            if price is None and re.match(r"^\$[\d.,]+$", l):
+                price = parse_number(l)
+            if l.lower().startswith("24h change"):
+                arrow = lines[i + 1] if i + 1 < len(lines) else ""
+                pct = lines[i + 2] if i + 2 < len(lines) else ""
+                v = parse_number(pct.replace("%", ""))
+                if v is not None:
+                    change = -v if "▼" in arrow else v
+        items.append({"name": lines[0], "symbol": lines[1], "price": price, "change_24h_pct": change})
     return items
 
 
@@ -245,3 +217,32 @@ class PriceHistory:
     def ready(self, key: str, window_s: float = 1800, tol_s: float = 300, now: float | None = None) -> bool:
         now = time.time() if now is None else now
         return any(abs((now - t) - window_s) <= tol_s for t, _ in self.h.get(key, []))
+
+
+# --------------------------------------------------------------------------- persistence
+def save_history(path: str, hist: "PriceHistory", vol: "VolumeTracker"):
+    """Survives a restart, so the 30-minute warm-up is not lost. Never raises."""
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"price": hist.h, "volume": vol.hist, "saved": time.time()}, f)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
+def load_history(path: str, hist: "PriceHistory", vol: "VolumeTracker", max_age_s: float = 5400):
+    """Loads samples; the file is ignored if too old. Returns the number of tokens restored."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        if time.time() - d.get("saved", 0) > max_age_s:
+            return 0
+        now = time.time()
+        hist.h = {k: [(float(t), float(v)) for t, v in rows if now - t <= hist.keep]
+                  for k, rows in d.get("price", {}).items()}
+        vol.hist = {k: [(float(t), float(v)) for t, v in rows if now - t <= vol.keep]
+                    for k, rows in d.get("volume", {}).items()}
+        return len(hist.h)
+    except Exception:
+        return 0

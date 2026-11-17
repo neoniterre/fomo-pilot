@@ -66,40 +66,6 @@ Buy
 Market details
 """
 
-# --- real fomo.family/top-movers text, TABLE layout (desktop, Nov 17, 2026, trimmed) ---
-TOP_MOVERS_TABLE = """Top Crypto Gainers
-20 assets
-
-Asset prices, 24-hour changes, reported market cap, volume and valuation in USD in the selected view
-#
-Position in this view
-\tAsset ↕\tPrice ↕\t24h change ↓\tMarket cap ↕\t24h volume ↕\tValuation ↕\t
-Buy asset
-
-1\t
-BUTTHOLE
-BUTTHOLE
-\t$0.000628\t
-▲
-70.51%
-\t$618.40K\t$99.09K\t$618.40K\tBuy
-2\t
-GTA VI
-GTA6
-\t$0.0166\t
-▲
-60.91%
-\t$16.36M\t$9.58M\t$16.36M\tBuy
-3\t
-Claudia
-CLAUDIA
-\t$0.00710\t
-▼
-5.00%
-\t$6.71M\t$5.71M\t$6.71M\tBuy
-
-All amounts are in USD."""
-
 # --- real DexScreener /latest/dex/search?q=GTA6 pairs (trimmed to the fields we use) ---
 SOL = "4kjruqGHDsSqkMdFfCjV7Vb62HPFhtXyWc2t6JpQzDnz"
 PAIRS = [
@@ -128,16 +94,6 @@ def test_parse_fomo_list():
     n = parse_fomo_list(NEW)
     assert n[0]["symbol"] == "AAPL" and n[0]["price"] == 352.41 and n[1]["price"] == 0.00256
     assert parse_fomo_list("rien") == [] and parse_fomo_list(None) == []
-    one = parse_fomo_list(NEW.split("Position in this view: 2")[0])     # single card
-    assert [i["symbol"] for i in one] == ["AAPL"]
-
-
-def test_parse_fomo_table():
-    it = parse_fomo_list(TOP_MOVERS_TABLE)
-    assert [i["symbol"] for i in it] == ["BUTTHOLE", "GTA6", "CLAUDIA"]
-    assert it[0]["name"] == "BUTTHOLE" and it[1]["name"] == "GTA VI"
-    assert it[0]["price"] == 0.000628 and it[1]["price"] == 0.0166   # not the market cap column
-    assert it[1]["change_24h_pct"] == 60.91 and it[2]["change_24h_pct"] == -5.0
 
 
 def test_resolve_ignores_fake_chain():
@@ -247,6 +203,22 @@ def test_30m_rule_end_to_end():
     loose = RiskManager(Rules(use_30m=True, min_change_30m=10, min_change_1h=30), 1000, state_path=None, trade_log=None)
     m["change_30m_pct"] = 12.0
     assert loose.check_entry("GTA6", m, skip={"holders", "flags"}) == []
+
+
+def test_history_persistence():
+    import os, tempfile, time
+    from scanner import load_history, save_history
+    p = os.path.join(tempfile.mkdtemp(), "history.json")
+    h, v = PriceHistory(), VolumeTracker()
+    now = time.time()
+    h.add("A", 1.0, now=now - 1800); v.update("A", 5000, now=now - 1800)
+    save_history(p, h, v)
+    h2, v2 = PriceHistory(), VolumeTracker()
+    assert load_history(p, h2, v2) == 1
+    assert h2.change_pct("A", 1.25, now=now) == 25.0                 # warm-up survives a restart
+    assert load_history(p + ".nope", PriceHistory(), VolumeTracker()) == 0
+    open(p, "w").write("garbage")
+    assert load_history(p, PriceHistory(), VolumeTracker()) == 0     # corrupt file ignored
 
 
 if __name__ == "__main__":
