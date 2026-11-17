@@ -314,6 +314,23 @@ def test_cli_cloud_refuses_live_and_needs_auto():
         assert p.returncode == 1 and msg in out, (extra, p.returncode, out[-200:])
 
 
+def test_cloud_never_live_cli_and_workflows():
+    """Guard rail: pilot.py refuses --live with --cloud, and NO GitHub workflow can start the bot live
+    (bot-cloud.yml first; every other workflow too, cautious choice)."""
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "NTFY_TOPIC": ""}
+    p = subprocess.run([sys.executable, "pilot.py", "--auto", "--cloud", "--live"], capture_output=True,
+                       timeout=60, env=env)
+    assert p.returncode == 1 and "paper seulement" in p.stdout.decode("utf-8", "replace")
+
+    wf_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".github", "workflows")
+    bot = open(os.path.join(wf_dir, "bot-cloud.yml"), encoding="utf-8").read()
+    assert "pilot.py --auto --cloud" in bot                        # the run line we guard is really there
+    for name in sorted(os.listdir(wf_dir)):
+        if name.endswith((".yml", ".yaml")):
+            txt = open(os.path.join(wf_dir, name), encoding="utf-8").read()
+            assert "--live" not in txt and "--auto-entry" not in txt, name
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):
