@@ -17,22 +17,35 @@ def main():
     except Exception as e:
         print("[HTTP] erreur", e)
 
+    import re
+    import time
+    try:
+        html = r.text
+        print("[HTTP] __NEXT_DATA__:", "__NEXT_DATA__" in html, "| self.__next_f:", "self.__next_f" in html,
+              "| '24h change' dans le HTML:", "24h change" in html, "| '$' prix:", len(re.findall(r'"price"', html)))
+        i = html.find("Position in this view")
+        print("[HTTP] contexte 'Position':", repr(html[max(i - 100, 0):i + 300]) if i >= 0 else "absent")
+    except Exception as e:
+        print("[HTTP] analyse", e)
+
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
-        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        ctx = b.new_context(viewport={"width": 1400, "height": 900}, bypass_csp=True)
+        pg = ctx.new_page()
         pg.goto(URL, wait_until="domcontentloaded", timeout=40000)
-        try:
-            pg.wait_for_function("document.body && document.body.innerText.includes('Position in this view')",
-                                 timeout=25000)
-        except Exception as e:
-            print("[HEADLESS] attente marqueur :", str(e)[:100])
-        txt = pg.evaluate("document.body ? document.body.innerText : ''")
+        txt, t0 = "", time.time()
+        while time.time() - t0 < 30:                      # polling sans eval de chaîne (CSP de fomo)
+            txt = pg.inner_text("body")
+            if "Position in this view" in txt:
+                break
+            pg.mouse.wheel(0, 1500)                       # certaines listes se chargent au défilement
+            time.sleep(1.5)
         items = parse_fomo_list(txt)
-        print(f"[HEADLESS] len={len(txt)} marqueur={'Position in this view' in txt} tokens lus={len(items)}")
+        print(f"[HEADLESS] attendu {time.time() - t0:.0f}s len={len(txt)} marqueur={'Position in this view' in txt} tokens lus={len(items)}")
         print("[HEADLESS] exemples:", [(i['symbol'], i['price'], i['change_24h_pct']) for i in items[:5]])
         if not items:
-            print("[HEADLESS] début de page :", repr(txt[:400]))
+            print("[HEADLESS] fin de page :", repr(txt[-500:]))
         b.close()
 
 
