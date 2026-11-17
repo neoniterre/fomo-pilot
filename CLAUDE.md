@@ -18,18 +18,20 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 | Fichier | Rôle |
 |---|---|
 | `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. |
-| `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`. |
+| `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`, `save_history` / `load_history` (`history.json`). |
 | `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
-| `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). |
+| `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
-| `test_*.py` | Tests sans réseau ni clé. **Doivent passer avant chaque commit.** |
+| `test_*.py` | Tests sans réseau ni clé (`test_pilot.py` : reconnexion Chrome avec un faux navigateur). **Doivent passer avant chaque commit. Ne jamais supprimer un test.** |
+| `history.json` | Relevés de prix / volume sauvegardés (la variation 30 min survit à un redémarrage, ignoré si > 90 min). Exclu de git. |
 
 ## Commandes (Windows, dans le dossier du projet)
 ```
 .\venv\Scripts\python.exe test_risk.py
 .\venv\Scripts\python.exe test_reader.py
 .\venv\Scripts\python.exe test_scanner.py
+.\venv\Scripts\python.exe test_pilot.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe summary.py --watch
 ```
@@ -41,11 +43,16 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
   `priceChange.m5/h1/h6/h24`, `volume.*`, `liquidity.usd`, `marketCap`, `pairCreatedAt` (ms). **Pas de variation 30 min.**
 - Les symboles ne sont pas uniques (faux « GTA6 » sur BSC avec +507 % et sans liquidité) -> toujours associer par prix et liquidité.
 - Fomo n'affiche pas le top 5 holders mais le top 10 : on l'utilise comme proxy sûr (top5 <= top10).
+- **fomo.family/top-movers existe en 2 formats** : tableau (desktop : « Position in this view » une seule fois dans
+  l'en-tête, puis chaque ligne commence par son rang seul après « Buy asset ») et cartes (« Position in this view: N »
+  avant chaque token). `parse_fomo_list` doit lire LES DEUX. Test de non-régression : `test_parse_fomo_table`
+  (17/11/2026 : une version sans le tableau lisait 0 token sur la vraie page, et c'est revenu 2 fois via des copies anciennes).
 
 ## Workflow git
 - `git pull` avant de travailler, petits commits, message clair, `git push` sur `main`.
 - Ne jamais forcer un push. En cas de conflit : s'arrêter et expliquer.
-- Après une correction : lancer les 3 tests, puis commiter. Garder `summary.py` aligné avec les lignes de log.
+- Après une correction : lancer les 4 tests (`test_risk`, `test_reader`, `test_scanner`, `test_pilot`), puis commiter.
+  Avant de remplacer un fichier, `git diff` : un fichier écrit à partir d'une ancienne version efface les corrections. Garder `summary.py` aligné avec les lignes de log.
 
 ## État / à faire (priorité)
 1. **Fiabilité** : FAIT (reconnexion si Chrome fermé, BTC 3 sources, `history.json`). Reste : délais fomo plus tolérants.
