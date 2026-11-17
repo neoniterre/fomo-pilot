@@ -9,6 +9,7 @@ venv\Scripts\python.exe test_pilot.py || (echo ECHEC test_pilot & pause & exit /
 venv\Scripts\python.exe test_notify.py || (echo ECHEC test_notify & pause & exit /b 1)
 venv\Scripts\python.exe test_gardien.py || (echo ECHEC test_gardien & pause & exit /b 1)
 venv\Scripts\python.exe test_security.py || (echo ECHEC test_security & pause & exit /b 1)
+venv\Scripts\python.exe test_summary.py || (echo ECHEC test_summary & pause & exit /b 1)
 echo Tests OK.
 echo.
 echo === Lancement du bot (PAPER, seuils 30min=20 et 1h=50) ===

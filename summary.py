@@ -5,6 +5,7 @@ summary.py : version simplifiée de pilot.log, en français.
   python summary.py              -> état + 20 derniers événements
   python summary.py --last 50    -> plus d'historique
   python summary.py --watch      -> se rafraîchit toutes les 10 s (Ctrl+C pour quitter)
+  python summary.py --cloud      -> bot cloud : état + derniers trades lus sur GitHub (branche data, sans clé)
 """
 import argparse
 import json
@@ -153,19 +154,119 @@ def state_block(path):
         s = json.load(open(path, encoding="utf-8"))
     except Exception:
         return ["(state.json illisible)"]
-    gain = s["capital"] - s["day_start_capital"]
-    lines = [f"Capital : {s['capital']:.2f} $   |   Aujourd'hui : {gain:+.2f} $   |   "
-             f"Trades du jour : {s['trades_today']}"]
-    pos = s.get("positions", {})
-    if pos:
-        for k, p in pos.items():
-            lines.append(f"  Position ouverte : {k}  ${p['initial_usd'] * p['remaining_frac']:.2f}  "
-                         f"(entrée {p['entry_price']}, stop -{p['stop_pct']}%)")
+    return state_lines(s)
+
+
+def state_lines(s):
+    """Same French summary for a local or a cloud state.json. Never raises."""
+    try:
+        gain = s["capital"] - s["day_start_capital"]
+        lines = [f"Capital : {s['capital']:.2f} $   |   Aujourd'hui : {gain:+.2f} $   |   "
+                 f"Trades du jour : {s['trades_today']}"]
+        pos = s.get("positions", {})
+        if pos:
+            for k, p in pos.items():
+                lines.append(f"  Position ouverte : {k}  ${p['initial_usd'] * p['remaining_frac']:.2f}  "
+                             f"(entrée {p['entry_price']}, stop -{p['stop_pct']}%)")
+        else:
+            lines.append("Aucune position ouverte.")
+        if s.get("halted"):
+            lines.append("!! Coupe-circuit actif : plus d'entrée aujourd'hui.")
+        return lines
+    except Exception:
+        return ["(state.json illisible)"]
+
+
+def trades_lines(text, last=10):
+    """Last trades of trades.jsonl (one JSON per line), in French. Bad lines are skipped. Never raises."""
+    rows = []
+    for raw in (text or "").splitlines():
+        try:
+            t = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(t, dict):
+            rows.append(t)
+    if not rows:
+        return ["Aucun trade pour l'instant."]
+    out = [f"Derniers trades ({min(last, len(rows))} sur {len(rows)}) :"]
+    for t in rows[-last:]:
+        try:
+            when = str(t.get("ts", "?"))[:16].replace("T", " ")
+            mode = str(t.get("mode", "?")).upper()
+            if t.get("side") == "buy":
+                out.append(f"  {when}  {mode} ACHAT  {t.get('token')}  ${float(t.get('usd', 0)):.2f}  "
+                           f"(stop -{t.get('stop_pct')}%)")
+            else:
+                pnl = float(t.get("pnl_usd", 0))
+                out.append(f"  {when}  {mode} VENTE  {t.get('token')}  {int(round(float(t.get('frac', 0)) * 100))}%  "
+                           f"{'+' if pnl >= 0 else ''}{pnl:.2f} $  ({fr_reason(str(t.get('reason', '')))})")
+        except Exception:
+            out.append("  (ligne de trade illisible)")
+    return out
+
+
+# --------------------------------------------------------------------------- cloud (GitHub, branche data)
+CLOUD_BASE = "https://raw.githubusercontent.com/neoniterre/fomo-pilot/data/"
+
+
+def fetch_url(url, timeout=15):
+    """Returns (status, text). 404 -> (404, ""). Network problem -> raises (caught by cloud_block)."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "fomo-pilot-summary", "Cache-Control": "no-cache"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        return e.code, ""
+
+
+def cloud_block(fetch=fetch_url, last=10):
+    """State + last trades of the cloud bot, read from the public `data` branch (no key). Never raises."""
+    def get(name):
+        try:
+            return fetch(CLOUD_BASE + name)
+        except Exception as e:
+            return None, f"{type(e).__name__}"
+
+    out = []
+    status, text = get("STOP")
+    if status == 200:
+        out.append("!! Arrêt d'urgence demandé (fichier STOP sur la branche data) : le bot cloud ne tourne pas.")
+
+    status, text = get("state.json")
+    if status is None:
+        return out + [f"Impossible de joindre GitHub ({text}). Vérifie ta connexion internet et réessaie."]
+    if status == 404:
+        out.append("Pas encore d'état dans le cloud (le bot n'a encore rien sauvegardé sur la branche data).")
+    elif status != 200:
+        out.append(f"GitHub a répondu {status} pour state.json : réessaie dans quelques minutes.")
     else:
-        lines.append("Aucune position ouverte.")
-    if s.get("halted"):
-        lines.append("!! Coupe-circuit actif : plus d'entrée aujourd'hui.")
-    return lines
+        try:
+            s = json.loads(text)
+            out += state_lines(s) if isinstance(s, dict) else ["(state.json du cloud illisible)"]
+        except Exception:
+            out.append("(state.json du cloud illisible)")
+
+    out.append("-" * 64)
+    status, text = get("trades.jsonl")
+    if status == 200:
+        out += trades_lines(text, last)
+    elif status == 404:
+        out.append("Aucun trade pour l'instant (pas encore de trades.jsonl).")
+    elif status is None:
+        out.append(f"Trades : GitHub injoignable ({text}).")
+    else:
+        out.append(f"Trades : GitHub a répondu {status}.")
+    return out
+
+
+def show_cloud(args, fetch=fetch_url):
+    out = ["=" * 64, "  RÉSUMÉ DU BOT CLOUD (branche data, peut avoir ~5 min de retard)", "=" * 64]
+    out += cloud_block(fetch, last=min(args.last, 30))
+    out.append("=" * 64)
+    print("\n".join(out))
 
 
 def show(args):
@@ -192,14 +293,16 @@ if __name__ == "__main__":
     ap.add_argument("--state", default="state.json")
     ap.add_argument("--last", type=int, default=20)
     ap.add_argument("--watch", action="store_true")
+    ap.add_argument("--cloud", action="store_true", help="résumé du bot cloud (branche data sur GitHub, sans clé)")
     a = ap.parse_args()
+    run = show_cloud if a.cloud else show
     if a.watch:
         try:
             while True:
                 os.system("cls" if os.name == "nt" else "clear")
-                show(a)
-                time.sleep(10)
+                run(a)
+                time.sleep(60 if a.cloud else 10)          # cloud: GitHub raw is cached anyway, no hammering
         except KeyboardInterrupt:
             pass
     else:
-        show(a)
+        run(a)

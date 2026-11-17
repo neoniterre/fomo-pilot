@@ -38,3 +38,5 @@ jobs:
         run: python test_gardien.py
       - name: test_security
         run: python test_security.py
+      - name: test_summary
+        run: python test_summary.py
