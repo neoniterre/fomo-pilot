@@ -1,0 +1,26 @@
+name: cloud-test
+# Test de bout en bout du mode --cloud (PAPER) : lancé à la main, dure quelques minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "durée du test en minutes"
+        default: "8"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx playwright python-dotenv && playwright install --with-deps chromium
+      - name: pilot --auto --cloud (PAPER)
+        run: |
+          timeout ${{ github.event.inputs.minutes }}m python pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50 --scan-every 60 --interval 30 --state-file /tmp/state.json || echo "exit=$?"
+      - name: journal
+        if: always()
+        run: |
+          echo "----- pilot.log (derniers 120) -----"; tail -n 120 pilot.log || true
+          echo "----- state -----"; cat /tmp/state.json || true
