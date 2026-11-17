@@ -702,7 +702,9 @@ class FomoPilot:
                 # Headless Chromium, no login: only fomo's PUBLIC lists are read (no CDP, no clicks, no model).
                 try:
                     self.browser = await p.chromium.launch(headless=True)
-                    self.page = await (await self.browser.new_context()).new_page()
+                    # bypass_csp: fresh context only (never the user's Chrome); validated by tools/probe_fomo.py
+                    ctx = await self.browser.new_context(viewport={"width": 1400, "height": 900}, bypass_csp=True)
+                    self.page = await ctx.new_page()
                     logger.info("Cloud : Chromium headless lancé (listes publiques fomo seulement).")
                 except Exception as e:
                     logger.error("STOPPING: Chromium headless impossible à lancer (%s). "
