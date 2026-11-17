@@ -29,6 +29,7 @@ from collections import Counter
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
+from notify import Notifier, msg_entry, msg_exit, msg_report
 from reader import BtcChange
 from risk import CONFIRM_WORDS, RiskManager, Rules, element_gate, ui_gate
 from scanner import (Dex, PriceHistory, load_history, save_history, VolumeTracker, group_pairs, metrics_from_group,
@@ -252,6 +253,8 @@ class FomoPilot:
         self.dex, self.btc, self.voltrack, self.hist = Dex(), BtcChange(), VolumeTracker(), PriceHistory()
         self.target, self.queue, self.last_scan, self.cooldown = None, [], 0.0, {}
         self.browser = None
+        self.notifier = Notifier(getattr(args, 'ntfy_topic', None))
+        self.last_report_day, self.halt_alerted = None, None
         self.history_file = os.path.join(os.path.dirname(os.path.abspath(args.state_file)) or ".", "history.json")
         n = load_history(self.history_file, self.hist, self.voltrack)
         if n:
@@ -383,6 +386,8 @@ class FomoPilot:
             if not self.live:
                 pnl = self.risk.apply_exit(ex["token"], ex["frac"], ex["price"], ex["reason"], mode="paper")
                 logger.info("[PAPER] exit done, pnl $%.2f | %s", pnl, self.risk.status())
+                t, m = msg_exit(ex, pnl)
+                await self.notifier.send(t, m, priority=4 if pnl < 0 else 3, tags="chart_with_downwards_trend" if pnl < 0 else "moneybag")
             elif self.pending is None:
                 self.pending = {"kind": "exit", "item": ex, "amount_str": str(ex["sell_pct_of_current"]),
                                 "ttl": 8, "clicked_trade": False}
@@ -394,6 +399,8 @@ class FomoPilot:
             if not self.live:
                 self.risk.open_position(e["token"], e["price"], e["usd"], e["stop_pct"], mode="paper", ref=e.get("ref", ""))
                 logger.info("[PAPER] entry recorded | %s", self.risk.status())
+                t, m = msg_entry(e)
+                await self.notifier.send(t, m, tags="rocket")
             elif self.pending is None:
                 ok = self.args.auto_entry
                 if not ok:
@@ -579,7 +586,21 @@ class FomoPilot:
             self.cooldown[tgt["symbol"]] = time.time() + 300
             self.target = None
 
+    async def alerts(self):
+        """Circuit breaker (once per day) and daily report (once, after --report-hour local time)."""
+        today = time.strftime("%Y-%m-%d")
+        if self.risk.halted and self.halt_alerted != today:
+            self.halt_alerted = today
+            await self.notifier.send("STOP du jour", "Coupe-circuit déclenché : plus aucune entrée aujourd'hui. "
+                                     + self.risk.status(), priority=5, tags="octagonal_sign")
+        if time.localtime().tm_hour >= self.args.report_hour and self.last_report_day != today:
+            self.last_report_day = today
+            r = self.risk
+            t, m = msg_report(r.capital, r.day_start_capital, r.trades_today, list(r.positions), r.halted)
+            await self.notifier.send(t, m, priority=2, tags="bar_chart")
+
     async def auto_cycle(self):
+        await self.alerts()
         await self.watch_positions()
         if self.risk.halted:
             logger.warning("Daily circuit breaker ACTIVE: no new entries until tomorrow.")
@@ -607,6 +628,8 @@ class FomoPilot:
         """Chrome was closed: keep watching open positions through DexScreener (no browser needed)
         and retry the connection every 30 s. Gives up after --reconnect-min minutes."""
         logger.error("ATTENTION: Chrome fermé / déconnecté. Je surveille les positions et je réessaie toutes les 30 s.")
+        await self.notifier.send("Chrome ferme", "Chrome est fermé ou déconnecté. Je surveille les positions et je "
+                                 "réessaie toutes les 30 s. Rouvre Chrome en mode debug.", priority=4, tags="warning")
         deadline = time.time() + self.args.reconnect_min * 60
         while time.time() < deadline and self.running:
             try:
@@ -641,6 +664,8 @@ class FomoPilot:
                 self.page = await (await browser.new_context()).new_page()
 
             await self.page.goto("https://fomo.family", wait_until="domcontentloaded")
+            await self.notifier.send("Bot demarre", "Bot lancé en mode " + ("LIVE" if self.live else "PAPER")
+                                     + ". " + self.risk.status(), priority=2, tags="white_check_mark")
             logger.info("Opened fomo.family. Log in manually if needed. Mode=%s provider=%s model=%s | %s",
                         "LIVE" if self.live else "PAPER", self.provider.name, self.provider.model,
                         self.risk.status())
@@ -680,6 +705,7 @@ class FomoPilot:
                     await asyncio.sleep(self.args.interval)
                 except FatalAPIError as e:
                     logger.error("STOPPING: %s", e)
+                    await self.notifier.send("BOT ARRETE", f"Arrêt : {e}", priority=5, tags="rotating_light")
                     break
                 except Exception as e:
                     logger.error("Cycle error: %s", e)
@@ -687,10 +713,15 @@ class FomoPilot:
                         if not await self._recover(p):
                             logger.error("STOPPING: Chrome est fermé depuis trop longtemps. Relance Chrome en "
                                          "mode debug puis le bot.")
+                            await self.notifier.send("BOT ARRETE", "Chrome fermé trop longtemps, le bot s'est arrêté.",
+                                                     priority=5, tags="rotating_light")
                             break
                         continue
                     await asyncio.sleep(5)
             logger.info("Pilot stopped. %s", self.risk.status())
+            if self.risk.positions:
+                await self.notifier.send("Positions ouvertes", "Le bot est arrêté mais ces positions restent ouvertes : "
+                                         + ", ".join(self.risk.positions), priority=5, tags="warning")
             if self.risk.positions:
                 logger.warning("Positions still open in the books: %s. The bot is no longer watching "
                                "them, check fomo.family yourself.", ", ".join(self.risk.positions))
@@ -702,6 +733,8 @@ def parse_args():
                     help="text = free, reads the page text with code (default)")
     ap.add_argument("--model", default="", help=f"default for anthropic: {DEFAULT_ANTHROPIC_MODEL}")
     ap.add_argument("--list-models", action="store_true", help="xai only: list models with image input")
+    ap.add_argument("--ntfy-topic", default=None, help="canal ntfy (sinon NTFY_TOPIC du .env)")
+    ap.add_argument("--report-hour", type=int, default=21, help="heure locale du rapport quotidien")
     ap.add_argument("--reconnect-min", type=float, default=30,
                     help="minutes to keep retrying if Chrome is closed before stopping")
     ap.add_argument("--capital", type=float, default=20, help="Capital in $ (used for risk sizing)")

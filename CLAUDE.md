@@ -21,6 +21,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 | `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`, `save_history` / `load_history` (`history.json`). |
 | `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
 | `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. |
+| `notify.py` | Alertes téléphone via ntfy (gratuit, sans compte). Canal secret dans `.env` : `NTFY_TOPIC=...` (ou `--ntfy-topic`). Ne lève jamais d'exception, anti-doublon 60 s. Alertes : démarrage, entrée/sortie simulées, coupe-circuit, Chrome fermé, arrêt du bot, rapport du jour (`--report-hour`, défaut 21 h). Jamais de clé ni de donnée sensible dans un message. |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
 | `test_*.py` | Tests sans réseau ni clé (`test_pilot.py` : reconnexion Chrome et garde-fou des clics avec un faux navigateur). Lancés aussi sur GitHub Actions à chaque push (`.github/workflows/tests.yml`). **Doivent passer avant chaque commit. Ne jamais supprimer un test.** |
@@ -33,6 +34,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 .\venv\Scripts\python.exe test_reader.py
 .\venv\Scripts\python.exe test_scanner.py
 .\venv\Scripts\python.exe test_pilot.py
+.\venv\Scripts\python.exe test_notify.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe summary.py --watch
 ```
@@ -58,7 +60,7 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 ## État / à faire (priorité)
 1. **Fiabilité** : FAIT (reconnexion si Chrome fermé, BTC 3 sources, `history.json`). Reste : délais fomo plus tolérants.
 2. **Gardien + démarrage automatique** (relance du bot et de Chrome debug, planificateur Windows).
-3. **Alertes téléphone** (ntfy ou Telegram) + rapport de fin de journée.
+3. **Alertes téléphone** : FAIT (ntfy, `notify.py`). Telegram (pour répondre au bot) : plus tard, si besoin.
 4. **Mode cloud** (sans PC) : top holders / alertes via API de sécurité (RugCheck pour Solana, GoPlus pour EVM), exécution
    planifiée (GitHub Actions pour tester, puis petit serveur). Vérifier les conditions gratuites de ces API.
 5. Passage en live : **seulement** après plusieurs jours de paper concluants, décision d'Elhadj.

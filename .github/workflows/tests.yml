@@ -32,3 +32,5 @@ jobs:
         run: python test_scanner.py
       - name: test_pilot
         run: python test_pilot.py
+      - name: test_notify
+        run: python test_notify.py

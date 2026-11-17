@@ -46,6 +46,8 @@ def bare_pilot(reconnect_min=30.0, auto=False):
     fp = object.__new__(FomoPilot)
     fp.args = types.SimpleNamespace(reconnect_min=reconnect_min, auto=auto)
     fp.running, fp.browser, fp.page, fp.target = True, None, None, {"symbol": "OLD"}
+    from notify import Notifier
+    fp.notifier = Notifier("")                              # disabled: no network
     return fp
 
 
