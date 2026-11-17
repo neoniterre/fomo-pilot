@@ -18,6 +18,12 @@ sans la comparer d'abord à la version présente ici.
 - Ne jamais supprimer un test existant pour faire passer une nouvelle version :
   chaque test protège une correction déjà faite.
 
+## Git
+- Le dossier est un dépôt git (branche `main`). Après chaque changement dont les tests
+  passent : un commit avec un message clair en français.
+- Avant de remplacer un fichier, regarder `git diff` pour voir ce qui serait perdu.
+- `.env`, `venv/`, logs et `state.json` sont exclus par `.gitignore` : ne jamais les ajouter.
+
 ## Corrections à ne pas perdre (tests de non-régression)
 - `scanner.parse_fomo_list` doit lire les DEUX formats de fomo.family/top-movers :
   le tableau actuel (rang seul sur sa ligne, après « Buy asset ») et l'ancien format à
