@@ -403,16 +403,38 @@ class FomoPilot:
             self.pending = None
 
     # ---------- auto mode: scan -> code filters -> page check -> paper entry ----------
+    async def _read_list(self, page, path: str) -> str:
+        """Loads a fomo list page and WAITS for the list to be rendered (a background tab can be slow)."""
+        marker = "Position in this view"
+        url = "https://fomo.family/" + path.strip().strip("/")
+        text = ""
+        for attempt in (1, 2):
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_function(
+                    f"document.body && document.body.innerText.includes('{marker}')",
+                    timeout=15000, polling=500)
+            except Exception as e:
+                logger.info("SCAN: attente de la liste %s (essai %d) : %s", path, attempt, str(e)[:80])
+            text = await page.evaluate("document.body ? document.body.innerText : ''")
+            if marker in text:
+                return text
+            if attempt == 1:
+                try:
+                    await page.bring_to_front()      # background tabs get throttled by Chrome
+                except Exception:
+                    pass
+        logger.warning("SCAN: page %s illisible (%d caractères, url=%s). Début : %r",
+                       path, len(text), page.url, text[:160])
+        return text
+
     async def scan_fomo(self) -> list[dict]:
         """Reads fomo's public lists, resolves each token on-chain, applies the code filters."""
         texts = []
         page = await self.page.context.new_page()
         try:
             for path in self.args.lists.split(","):
-                await page.goto("https://fomo.family/" + path.strip().strip("/"),
-                                wait_until="domcontentloaded", timeout=30000)
-                await page.wait_for_timeout(1500)
-                texts.append(await page.evaluate("document.body.innerText"))
+                texts.append(await self._read_list(page, path))
         finally:
             await page.close()
 
