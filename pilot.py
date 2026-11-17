@@ -31,6 +31,7 @@ from playwright.async_api import async_playwright
 
 from notify import Notifier, msg_entry, msg_exit, msg_report
 from reader import BtcChange
+from security import SecurityChecker
 from risk import CONFIRM_WORDS, RiskManager, Rules, element_gate, ui_gate
 from scanner import (Dex, PriceHistory, load_history, save_history, VolumeTracker, group_pairs, metrics_from_group,
                      parse_fomo_list, resolve_token)
@@ -240,12 +241,20 @@ async def list_xai_vision_models():
     return vision
 
 
+class CloudProvider:
+    """--cloud: no model, no key. Holders / red flags come from security.py (RugCheck / GoPlus)."""
+    name = "cloud"
+    model = "security-api"
+
+
 # --------------------------------------------------------------------------- pilot
 class FomoPilot:
     def __init__(self, args, provider=None):
         self.args = args
         self.live = args.live
-        self.provider = provider or make_provider(args.provider, args.model)
+        self.cloud = bool(getattr(args, "cloud", False))
+        self.security = SecurityChecker()
+        self.provider = provider or (CloudProvider() if self.cloud else make_provider(args.provider, args.model))
         self.running = True
         self.page = None
         self.pending = None  # approved trade waiting to be executed in the UI (live only)
@@ -594,6 +603,33 @@ class FomoPilot:
             self.cooldown[tgt["symbol"]] = time.time() + 300
             self.target = None
 
+    async def verify_target_cloud(self):
+        """--cloud: no Chrome, no model. Holders + red flags from security.py, numbers from DexScreener,
+        then the same decision path as verify_target. Unavailable security data -> refused (fail-closed)."""
+        tgt = self.target
+        self.target = None
+        key = f"{tgt['chain']}:{tgt['address']}"
+        sec = await self.security.check_token(tgt["chain"], tgt["address"])
+        logger.info("VERIF cloud: %s (%s) source=%s ok=%s top10=%s top5=%s alertes=%s", tgt["symbol"], tgt["chain"],
+                    sec.get("source"), sec.get("ok"), sec.get("top10_holders_pct"), sec.get("top5_holders_pct"),
+                    sec.get("red_flags") or "aucune")
+        groups = group_pairs(await self.dex.token_pairs(tgt["address"], tgt["chain"]))
+        if not groups:
+            logger.warning("VERIF cloud: %s price data unavailable, abandoned", tgt["symbol"])
+            self.cooldown[tgt["symbol"]] = time.time() + 300
+            return
+        g = max(groups, key=lambda x: x["liq"])          # fresh numbers right before the decision
+        metrics = metrics_from_group(g, await self.btc.get())
+        metrics["change_30m_pct"] = self.hist.change_pct(key, metrics["price"])
+        flags = sec.get("red_flags")
+        metrics.update(top5_holders_pct=sec.get("top5_holders_pct"), top10_holders_pct=sec.get("top10_holders_pct"),
+                       red_flags=flags if isinstance(flags, list) else ["donnée sécurité indisponible"])
+        if not sec.get("ok"):
+            metrics["top5_holders_pct"] = metrics["top10_holders_pct"] = None   # never trust a failed check
+        self.cooldown[tgt["symbol"]] = time.time() + (900 if sec.get("ok") else 300)
+        decision = {"intent": "enter", "token": tgt["symbol"], "metrics": metrics, "ref": key, "open_positions": []}
+        await self.handle_plan(self.risk.process(decision))
+
     async def alerts(self):
         """Circuit breaker (once per day) and daily report (once, after --report-hour local time)."""
         today = time.strftime("%Y-%m-%d")
@@ -622,7 +658,10 @@ class FomoPilot:
             self.target["ttl"] = self.args.verify_cycles
             logger.info("VERIF: début %s (%s)", self.target["symbol"], self.target["chain"])
         if self.target:
-            await self.verify_target(await self.take_snapshot())
+            if self.cloud:
+                await self.verify_target_cloud()
+            else:
+                await self.verify_target(await self.take_snapshot())
 
     # ---------- browser lost ----------
     def _browser_dead(self) -> bool:
@@ -659,17 +698,30 @@ class FomoPilot:
     # ---------- main loop ----------
     async def run(self):
         async with async_playwright() as p:
-            try:
-                browser = await p.chromium.connect_over_cdp("http://localhost:9222")
-                self.browser = browser
-                ctx = browser.contexts[0]
-                self.page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-                logger.info("Connected to existing Chrome (CDP).")
-            except Exception:
-                logger.info("No Chrome in debug mode - launching a new one")
-                browser = await p.chromium.launch(headless=False, channel="chrome")
-                self.browser = browser
-                self.page = await (await browser.new_context()).new_page()
+            if self.cloud:
+                # Headless Chromium, no login: only fomo's PUBLIC lists are read (no CDP, no clicks, no model).
+                try:
+                    self.browser = await p.chromium.launch(headless=True)
+                    self.page = await (await self.browser.new_context()).new_page()
+                    logger.info("Cloud : Chromium headless lancé (listes publiques fomo seulement).")
+                except Exception as e:
+                    logger.error("STOPPING: Chromium headless impossible à lancer (%s). "
+                                 "Installe-le : python -m playwright install chromium", str(e)[:120])
+                    await self.notifier.send("BOT ARRETE", "Cloud : Chromium headless impossible à lancer.",
+                                             priority=5, tags="rotating_light")
+                    return
+            else:
+                try:
+                    browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+                    self.browser = browser
+                    ctx = browser.contexts[0]
+                    self.page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                    logger.info("Connected to existing Chrome (CDP).")
+                except Exception:
+                    logger.info("No Chrome in debug mode - launching a new one")
+                    browser = await p.chromium.launch(headless=False, channel="chrome")
+                    self.browser = browser
+                    self.page = await (await browser.new_context()).new_page()
 
             await self.page.goto("https://fomo.family", wait_until="domcontentloaded")
             await self.notifier.send("Bot demarre", "Bot lancé en mode " + ("LIVE" if self.live else "PAPER")
@@ -717,6 +769,11 @@ class FomoPilot:
                     break
                 except Exception as e:
                     logger.error("Cycle error: %s", e)
+                    if self._browser_dead() and self.cloud:
+                        logger.error("STOPPING: Chromium headless arrêté (mode cloud : pas de reconnexion).")
+                        await self.notifier.send("BOT ARRETE", "Cloud : Chromium headless arrêté.",
+                                                 priority=5, tags="rotating_light")
+                        break
                     if self._browser_dead():
                         if not await self._recover(p):
                             logger.error("STOPPING: Chrome est fermé depuis trop longtemps. Relance Chrome en "
@@ -751,6 +808,9 @@ def parse_args():
     ap.add_argument("--live", action="store_true", help="REAL trades (default is paper)")
     ap.add_argument("--auto-entry", action="store_true", help="live: skip the y/n confirmation on entries")
     ap.add_argument("--auto", action="store_true", help="AUTO (paper only): scans fomo lists, filters with code, checks the page, simulates entries")
+    ap.add_argument("--cloud", action="store_true",
+                    help="avec --auto, sans Chrome ni modèle : holders/alertes via RugCheck (Solana) / GoPlus (EVM), "
+                         "listes fomo publiques en Chromium headless. Paper seulement.")
     ap.add_argument("--lists", default="top-movers", help="fomo public pages to scan, comma separated (default: top-movers)")
     ap.add_argument("--scan-every", type=float, default=60, help="seconds between scans (auto)")
     ap.add_argument("--min-1h", type=float, default=50.0, help="momentum: min %% change on 1h (desk rule: 50)")
@@ -776,14 +836,26 @@ if __name__ == "__main__":
         sys.exit(0)
     if args.reset_state and os.path.exists(args.state_file):
         os.remove(args.state_file)
+    if args.cloud:
+        if args.live or args.auto_entry:
+            print("--cloud n'est pas autorisé avec --live / --auto-entry (paper seulement).")
+            sys.exit(1)
+        if not args.auto:
+            print("--cloud ne marche qu'avec --auto.")
+            sys.exit(1)
     if args.auto:
         if args.live:
             print("--auto n'est pas autorisé avec --live pour l'instant (paper seulement).")
             sys.exit(1)
-        if args.provider == "text":
+        if args.cloud:
+            pass                                   # no model, no key, no navigation
+        elif args.provider == "text":
             args.provider = "anthropic"
             print("--auto utilise un modèle pour naviguer : provider = anthropic")
-        if not args.navigate:
+        if args.cloud and args.navigate:
+            args.navigate = False                  # cloud never clicks anything
+            print("--cloud : --navigate ignoré (aucun clic en mode cloud).")
+        elif not args.navigate and not args.cloud:
             print("ATTENTION : sans --navigate le bot scanne mais ne peut pas ouvrir les pages "
                   "pour lire les holders. Ajoute --navigate.")
     try:
