@@ -10,3 +10,4 @@ jobs:
           python-version: "3.12"
       - run: pip install httpx
       - run: python tools/probe_security.py
+      - run: python tools/probe_rugcheck.py
