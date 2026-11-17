@@ -48,7 +48,7 @@ jobs:
           python-version: "3.12"
       - name: Dépendances
         if: env.STOPPED != '1'
-        run: pip install httpx playwright python-dotenv && playwright install --with-deps chromium
+        run: python -m pip install -r requirements.txt && python -m playwright install --with-deps chromium
 
       - name: Bot (PAPER, --cloud)
         if: env.STOPPED != '1'

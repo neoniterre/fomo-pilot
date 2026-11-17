@@ -331,6 +331,21 @@ def test_cloud_never_live_cli_and_workflows():
             assert "--live" not in txt and "--auto-entry" not in txt, name
 
 
+def test_bot_workflows_install_pinned_requirements():
+    """The workflows that RUN the bot install the exact versions of requirements.txt (a silent package
+    update must not change the cloud bot), and requirements.txt pins every package with ==."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in ("bot-cloud.yml", "cloud-test.yml"):
+        txt = open(os.path.join(here, ".github", "workflows", name), encoding="utf-8").read()
+        installs = [l.strip() for l in txt.splitlines() if "pip install" in l]
+        assert installs and all("pip install -r requirements.txt" in l for l in installs), (name, installs)
+    reqs = [l.split("#")[0].strip() for l in open(os.path.join(here, "requirements.txt"), encoding="utf-8")]
+    reqs = [r for r in reqs if r]
+    assert reqs and all("==" in r for r in reqs), reqs
+    names = {r.split("==")[0].lower() for r in reqs}
+    assert {"httpx", "playwright", "python-dotenv"} <= names        # what the cloud bot needs
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):

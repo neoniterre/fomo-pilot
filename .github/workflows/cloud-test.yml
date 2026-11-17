@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install httpx playwright python-dotenv && playwright install --with-deps chromium
+      - run: python -m pip install -r requirements.txt && python -m playwright install --with-deps chromium
       - name: pilot --auto --cloud (PAPER)
         run: |
           timeout ${{ github.event.inputs.minutes }}m python pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50 --scan-every 60 --interval 30 --state-file /tmp/state.json || echo "exit=$?"
