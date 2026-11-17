@@ -346,6 +346,51 @@ def test_bot_workflows_install_pinned_requirements():
     assert {"httpx", "playwright", "python-dotenv"} <= names        # what the cloud bot needs
 
 
+def _workflow_steps(txt):
+    """{step name: step text} for a GitHub workflow (simple text split on '- name:', no YAML lib needed)."""
+    steps, cur = {}, None
+    for line in txt.splitlines():
+        s = line.strip()
+        if s.startswith("- name:"):
+            cur = s[len("- name:"):].strip()
+            steps[cur] = []
+        elif s.startswith("- uses:"):
+            cur = None
+        elif cur:
+            steps[cur].append(line)
+    return {k: "\n".join(v) for k, v in steps.items()}
+
+
+def _if_line(step_text):
+    return next((l.strip()[3:].strip() for l in step_text.splitlines() if l.strip().startswith("if:")), "")
+
+
+def test_bot_cloud_no_relaunch_loop_on_quick_crash():
+    """R1 (docs/ACCORD.md): a bot that dies in < 10 min (or never starts) must NOT relaunch the chain;
+    it sends a priority-5 ntfy alert and lets the cron retry. A requested short run is neither relaunched nor alerted."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    steps = _workflow_steps(open(os.path.join(here, ".github", "workflows", "bot-cloud.yml"), encoding="utf-8").read())
+    bot = steps["Bot (PAPER, --cloud)"]
+    assert "START=$(date +%s)" in bot and "DURATION=$(( $(date +%s) - START ))" in bot
+    assert "MIN_RUN_SECONDS=600" in bot and '"$DURATION" -ge "$MIN_RUN_SECONDS"' in bot
+    assert 'echo "LONG_RUN=1" >> "$GITHUB_ENV"' in bot
+    assert bot.index("START=$(date +%s)") < bot.index("python pilot.py --auto --cloud") < bot.index("DURATION=")
+
+    relaunch = _if_line(steps["Relance de la chaîne"])
+    assert "env.LONG_RUN == '1'" in relaunch                         # fail-closed: no LONG_RUN -> no relaunch
+    assert "github.event.inputs.chain != 'false'" in relaunch and "env.STOPPED != '1'" in relaunch
+    assert "gh workflow run bot-cloud.yml" in steps["Relance de la chaîne"]
+
+    quick = steps["Arrêt rapide (plantage au démarrage)"]
+    q_if = _if_line(quick)
+    assert q_if.startswith("always()") and "env.LONG_RUN != '1'" in q_if          # also when the bot never ran
+    assert "env.SHORT_REQUESTED != '1'" in q_if and "github.event.inputs.chain != 'false'" in q_if
+    assert "Priority: 5" in quick and "plante au d" in quick and "gh workflow run" not in quick
+    assert "secrets.NTFY_TOPIC" in quick and "ntfy.sh/$NTFY_TOPIC" in quick
+    names = list(steps)
+    assert names.index("Arrêt rapide (plantage au démarrage)") < names.index("Relance de la chaîne")
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):

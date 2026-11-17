@@ -67,15 +67,43 @@ jobs:
           }
           (while sleep 900; do save; done) &
           SAVER=$!
-          timeout "${{ github.event.inputs.minutes || '345' }}m" python pilot.py --auto --cloud \
+          PLANNED_MIN="${{ github.event.inputs.minutes || '345' }}"
+          START=$(date +%s)
+          timeout "${PLANNED_MIN}m" python pilot.py --auto --cloud \
             --capital 20 --min-30m 20 --min-1h 50 --scan-every 60 --interval 30 || echo "fin du bot, code $?"
+          DURATION=$(( $(date +%s) - START ))
+          echo "Durée du bot : ${DURATION} s (prévu : ${PLANNED_MIN} min)"
+          # R1 (docs/ACCORD.md) : relance UNIQUEMENT si le bot a tourné >= 10 min (MIN_RUN_SECONDS).
+          # Un run court demandé exprès (< 10 min) n'est ni relancé ni signalé comme plantage.
+          MIN_RUN_SECONDS=600
+          if [ "$DURATION" -ge "$MIN_RUN_SECONDS" ]; then
+            echo "LONG_RUN=1" >> "$GITHUB_ENV"
+          elif [ "$PLANNED_MIN" -lt 10 ] 2>/dev/null; then
+            echo "SHORT_REQUESTED=1" >> "$GITHUB_ENV"
+            echo "Run court demandé (${PLANNED_MIN} min) : pas de relance."
+          fi
           kill $SAVER 2>/dev/null || true
           save
           echo "----- fin de pilot.log (ntfy masqué) -----"
           tail -n 60 pilot.log | grep -v "HTTP Request" | sed -E 's#ntfy\.sh/[^ "]+#ntfy.sh/***#g' || true
 
+      - name: Arrêt rapide (plantage au démarrage)
+        # Bot < 10 min, OU bot jamais lancé (installation ratée...) : PAS de relance (sinon boucle de runs,
+        # de commits et d'alertes), alerte ntfy priorité 5, le cron (toutes les 6 h) retentera.
+        if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false' && env.LONG_RUN != '1' && env.SHORT_REQUESTED != '1'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          echo "ARRÊT RAPIDE : le bot a tourné moins de 10 min (ou n'a pas démarré). Pas de relance, le cron reprendra."
+          if [ -n "$NTFY_TOPIC" ]; then
+            curl -s -o /dev/null -m 15 -H "Title: Bot cloud plante au demarrage" -H "Priority: 5" -H "Tags: rotating_light" \
+              -d "Bot cloud plante au démarrage (moins de 10 min). Pas de relance automatique : le cron retentera dans 6 h max. Voir l'onglet Actions." \
+              "https://ntfy.sh/$NTFY_TOPIC" || echo "alerte ntfy impossible"
+          fi
+
       - name: Relance de la chaîne
-        if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false'
+        # Fail-closed (R1) : relance seulement si le bot a vraiment tourné >= 10 min.
+        if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false' && env.LONG_RUN == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
