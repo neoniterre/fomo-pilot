@@ -1,0 +1,19 @@
+# Secrets : ne JAMAIS versionner
+.env
+.env.*
+
+# Environnement Python
+venv/
+__pycache__/
+*.pyc
+
+# Données d'exécution (propres à ce PC)
+pilot.log
+*.log
+state.json
+state.json.tmp
+trades.jsonl
+page_dump.txt
+
+# Sauvegardes
+*.bak
