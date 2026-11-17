@@ -196,6 +196,54 @@ def test_read_list_waits_for_rows_without_wait_for_function():
     assert text == TOP_MOVERS_TABLE and page.gotos == 1      # waited for the rows, no reload needed
 
 
+def test_http_loggers_quiet_and_ntfy_url_never_logged():
+    """Public repo: httpx/httpcore at WARNING, so a successful ntfy POST (URL = secret channel) is never logged.
+    Real httpx with a mock transport: no network."""
+    import logging
+    import httpx
+    import notify
+
+    for name in ("httpx", "httpcore"):
+        assert logging.getLogger(name).getEffectiveLevel() >= logging.WARNING, name
+
+    topic = "secret-topic-test-123"
+    records = []
+
+    class Grab(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    class MockClient(httpx.AsyncClient):
+        def __init__(self, **kw):
+            super().__init__(transport=httpx.MockTransport(lambda req: httpx.Response(200)), **kw)
+
+    def send_once():
+        records.clear()
+        real = httpx.AsyncClient
+        httpx.AsyncClient = MockClient                           # notify.py does `import httpx` at call time
+        root, h = logging.getLogger(), Grab(level=logging.DEBUG)
+        saved = root.handlers[:]
+        root.handlers = [h]                                       # never write into the real pilot.log / console
+        try:
+            return asyncio.run(notify.Notifier(topic).send("t", "m"))
+        finally:
+            root.handlers = saved
+            httpx.AsyncClient = real
+
+    assert send_once() is True
+    assert not any(topic in r for r in records), records
+
+    # sanity: the check really catches it when httpx is left at INFO
+    lg = logging.getLogger("httpx")
+    old = lg.level
+    lg.setLevel(logging.INFO)
+    try:
+        send_once()
+        assert any(topic in r for r in records)
+    finally:
+        lg.setLevel(old)
+
+
 if __name__ == "__main__":
     n = 0
     for k, f in list(globals().items()):

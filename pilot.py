@@ -57,6 +57,11 @@ logging.basicConfig(
     handlers=[logging.FileHandler("pilot.log", encoding="utf-8"), SafeStreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("pilot")
+# httpx / httpcore log every request URL at INFO: that includes the ntfy URL, whose path IS the secret channel
+# (NTFY_TOPIC). Public repo + public Actions logs -> keep them at WARNING (errors only, no URL of successful calls).
+QUIET_HTTP_LOGGERS = ("httpx", "httpcore")
+for _name in QUIET_HTTP_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
 MAX_API_ERRORS_IN_A_ROW = 5
