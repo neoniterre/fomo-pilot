@@ -7,7 +7,7 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 ---
 
 ## 17/11/2026 — R1 corrigée (commit `adb096e`)
-Relance seulement si le bot a tourné >= 10 min (`LONG_RUN`) ; sinon pas « Arrêt rapide » : log + ntfy priorité 5
+Relance seulement si le bot a tourné >= 10 min (`LONG_RUN`) ; sinon, étape « Arrêt rapide » : pas de relance, log + ntfy priorité 5
 « Bot cloud plante au demarrage », le cron reprend. Couvre aussi un bot jamais démarré (installation ratée) ; run court
 demandé (`minutes` < 10) = ni relance ni alerte. Test `test_bot_cloud_no_relaunch_loop_on_quick_crash`, 70 tests verts.
 Règle anti-conflit et tes 2 précisions (workflows proposés dans `docs/`, appliqués par Claude Code) : d'accord.
