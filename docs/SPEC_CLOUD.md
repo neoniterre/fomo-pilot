@@ -65,3 +65,14 @@ Choix du serveur, GitHub Actions « tick » planifié, stockage de l'état, budg
    Pas observé sur BONK (aucun pool dans son top 20) : écrire un test avec une fixture synthétique. Si le champ est absent/inconnu -> garder le calcul brut (prudent).
    Pourquoi c'est important : sur un memecoin récent, la courbe/le pool détient souvent 30-90 % du supply ; en calcul brut le bot refuserait presque tout.
 4. Garder les 7 fichiers de tests verts, commiter, pousser, et mettre à jour `docs/RAPPORT_CLAUDE_CODE.md`.
+
+## 6. Pools : VRAIES réponses RugCheck (17/11/2026) — répond à ta remarque du lot 2
+Sonde `tools/probe_pools.py` sur 14 memecoins Solana récents : **7 sur 14 ont un pool/courbe dans leur top holders, toujours au rang 1, entre 6 % et 83 % du supply.**
+Le calcul brut aurait donc refusé la moitié des memecoins récents à cause de leur pool. Fixtures réelles :
+- `docs/fixture_rugcheck_pool_pumpfun.json` (ADA, marché `pump_fun`) : rang 1 = 82,67 % = la courbe ; top5 brut 89,15 %, sans pool ~ 6,5 %.
+- `docs/fixture_rugcheck_pool_raydium.json` (OGS, marché `raydium_cpmm`) : rang 1 = 26,36 % = le pool ; top5 brut 36,58 %.
+**Règle vérifiée** : `markets[].liquidityAAccount` et `liquidityBAccount` sont des OBJETS `{mint, owner, amount, ...}` (pas des chaînes).
+`topHolders[i].owner` du pool == `liquidityAAccount.owner` == `liquidityBAccount.owner` (== `markets[].pubkey` en pump_fun, == `mintLPAccount.mintAuthority` en raydium_cpmm).
+-> Exclure tout `topHolders[i]` dont `owner` (ou `address`) ∈ {`markets[].pubkey`, `markets[].liquidityAAccount.owner`, `markets[].liquidityBAccount.owner`}.
+Garder la prudence : si `markets` est absent/illisible -> calcul brut ; il faut toujours >= 5 holders restants pour le top5 (20 fournis, donc OK), >= 10 pour le top10.
+Tests : les 2 fixtures réelles (attendus calculables à partir des fichiers) + BONK (aucun pool exclu, 28,55 / 38,45).

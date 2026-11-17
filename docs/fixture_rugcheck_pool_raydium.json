@@ -1,0 +1,132 @@
+{
+ "_note": "VRAIE réponse RugCheck (OGS, raydium_cpmm) du 17/11/2026 via GitHub Actions, tronquée (10 topHolders). Le holder de rang 1 est le POOL : son `owner` = markets[].liquidityAAccount.owner / liquidityBAccount.owner (= markets[].pubkey pour pump_fun).",
+ "mint": "ogPTZKZYdWLw9txHcUpE7dF5PHwXUD5UCjhNRNfWXog",
+ "rugged": false,
+ "freezeAuthority": null,
+ "mintAuthority": null,
+ "score_normalised": 1,
+ "totalHolders": 324,
+ "risks": [],
+ "topHolders": [
+  {
+   "address": "8GHyXUswqNqLhGzqpUw5HAuf5CsM7GWajTek8c9kfxTX",
+   "pct": 26.36306535627451,
+   "owner": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+   "insider": false
+  },
+  {
+   "address": "4roZnBXEwEWMFmanbidv3i5heNnpJ2X6Ev1x4PvqoBYW",
+   "pct": 2.974623172559628,
+   "owner": "7x6AHogMm2SYoYmJwiRm691ro3eWTQoVz4taHK6Q19AR",
+   "insider": false
+  },
+  {
+   "address": "BRsL7mPjMJY7d1toGwGGYfTKPsgzSiZJhNozfWKkHqFj",
+   "pct": 2.5261131261697845,
+   "owner": "ogFipo59r6ptwFoYqqTTzrjoDwFNmwfQ8WJHa6myxog",
+   "insider": false
+  },
+  {
+   "address": "G8tUg6wzT5H1qs3LJrJmJXTizzgmRgLa9w6Qmb7qrZwx",
+   "pct": 2.5261131261697845,
+   "owner": "kurwAT2V3eqbpDVZWNUjwqKfq4iBF5VpFAktQSJwjAg",
+   "insider": false
+  },
+  {
+   "address": "2qWVzcXZcLjZnJ5ZEgwDRKCGLfEmnrDk3wGsCqNAj8uW",
+   "pct": 2.1853915120999203,
+   "owner": "CNnM4iEuL9ZEZWQVfkvDUJp54XdXbiNWxjvrbue53HE9",
+   "insider": false
+  },
+  {
+   "address": "8iGWxduTFGovSzTYwyrj6bckTYhAfqM8MT7Y8PXMKwSB",
+   "pct": 2.1628089677698696,
+   "owner": "jyS6csWzRsY8CKEKAjrH14K9Bh2M7nGYuDWqYNH9kDQ",
+   "insider": false
+  },
+  {
+   "address": "4TtwzPTXgByisiWk8dbuZ7GmZyrLFuyH94nwZpNT5fnc",
+   "pct": 2.0544062034968245,
+   "owner": "74TtBrEb4p1V4ruichrm5t7pCwJmCmK6LJmDw2yjnVo5",
+   "insider": false
+  },
+  {
+   "address": "EbQWWNCZMoW426JV9JZz1oABJisp3E79Qn335S8cXdDA",
+   "pct": 2.0211166950993,
+   "owner": "EN4hN61kQweLqgo7vY1vbNa9nrKgUaDU8FqTaE2zHoDL",
+   "insider": false
+  },
+  {
+   "address": "88jKaKVJzTFAfsNYx58smX7KBYkVVGSQ4NvcrhHwsQ2G",
+   "pct": 1.950532016438573,
+   "owner": "ana1te7hEKnk9bEFzzCwEe7ghE1PVPh55ezK24FF7FE",
+   "insider": false
+  },
+  {
+   "address": "9Kg8o2P9RCEaCXxjnru2kT5BP39NMQENnrhKnEDABtk9",
+   "pct": 1.9466165303892087,
+   "owner": "CFmcAHeM4JgrGQH27836EoGNLMmiooAZzq538CqPuHDc",
+   "insider": false
+  }
+ ],
+ "markets": [
+  {
+   "pubkey": "5QeuZTe45piQgn6fVkDWCqPksb23NGrR4rWHskXvBkmQ",
+   "marketType": "raydium_cpmm",
+   "liquidityAAccount": {
+    "mint": "So11111111111111111111111111111111111111112",
+    "owner": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+    "amount": 75717140565,
+    "delegate": null,
+    "state": 1,
+    "delegatedAmount": 0,
+    "closeAuthority": null
+   },
+   "liquidityBAccount": {
+    "mint": "ogPTZKZYdWLw9txHcUpE7dF5PHwXUD5UCjhNRNfWXog",
+    "owner": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+    "amount": 259091343130554,
+    "delegate": null,
+    "state": 1,
+    "delegatedAmount": 0,
+    "closeAuthority": null
+   },
+   "mintLPAccount": {
+    "mintAuthority": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+    "supply": 4149978945280,
+    "decimals": 9,
+    "isInitialized": true,
+    "freezeAuthority": null
+   }
+  },
+  {
+   "pubkey": "Ax7KCAkqzEBdKbNG5MfxmT79qHfufQQFy8xsoGwzLBXC",
+   "marketType": "meteora_damm_v2",
+   "liquidityAAccount": {
+    "mint": "ogPTZKZYdWLw9txHcUpE7dF5PHwXUD5UCjhNRNfWXog",
+    "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+    "amount": 34059257210,
+    "delegate": null,
+    "state": 1,
+    "delegatedAmount": 0,
+    "closeAuthority": null
+   },
+   "liquidityBAccount": {
+    "mint": "So11111111111111111111111111111111111111112",
+    "owner": "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC",
+    "amount": 7580618,
+    "delegate": null,
+    "state": 1,
+    "delegatedAmount": 0,
+    "closeAuthority": null
+   },
+   "mintLPAccount": {
+    "mintAuthority": null,
+    "supply": 7764042022940405108,
+    "decimals": 0,
+    "isInitialized": false,
+    "freezeAuthority": null
+   }
+  }
+ ]
+}
