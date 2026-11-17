@@ -20,7 +20,9 @@ sans la comparer d'abord à la version présente ici.
 
 ## Git
 - Le dossier est un dépôt git (branche `main`). Après chaque changement dont les tests
-  passent : un commit avec un message clair en français.
+  passent : un commit avec un message clair en français, puis `git push` vers
+  GitHub (`origin` = github.com/neoniterre/fomo-pilot, privé). Ne jamais `push --force`
+  sans accord explicite de l'utilisateur.
 - Avant de remplacer un fichier, regarder `git diff` pour voir ce qui serait perdu.
 - `.env`, `venv/`, logs et `state.json` sont exclus par `.gitignore` : ne jamais les ajouter.
 
