@@ -34,3 +34,5 @@ jobs:
         run: python test_pilot.py
       - name: test_notify
         run: python test_notify.py
+      - name: test_gardien
+        run: python test_gardien.py
