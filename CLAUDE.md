@@ -8,6 +8,10 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 - **Paper uniquement.** Ne jamais lancer ni activer `--live`, ne jamais exécuter de vrai trade, ne jamais cliquer
   Buy / Sell / Confirm / Swap / Withdraw / Transfer. `--auto` refuse déjà `--live`, ne pas lever ce garde-fou.
 - **Ne jamais toucher au `.env`, ne jamais afficher ni commiter une clé API.** Ne jamais coller de clé dans un message.
+- **Le dépôt GitHub est PUBLIC** (neoniterre/fomo-pilot) : aucune clé, aucun canal ntfy, aucun secret dans git, ni dans
+  les logs (les logs GitHub Actions sont publics aussi). Les secrets vont dans les *secrets GitHub* (`NTFY_TOPIC`) ou le `.env`.
+  `httpx`/`httpcore` restent en WARNING dans `pilot.py` (sinon l'URL ntfy, donc le canal, est loggée).
+- Ne jamais écrire sur la branche `data` (état du bot cloud) ni modifier les secrets GitHub.
 - **Fail-closed** : un chiffre illisible ou manquant = `None` = entrée refusée par `risk.py`. Ne jamais estimer ni deviner.
 - **Les desk rules vivent dans `risk.py`** (code), pas dans un prompt. Ne les assouplir que si Elhadj le demande
   explicitement (option CLI `--min-30m`, `--min-1h` pour les seuils de momentum).
@@ -25,6 +29,8 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 | `notify.py` | Alertes téléphone via ntfy (gratuit, sans compte). Canal secret dans `.env` : `NTFY_TOPIC=...` (ou `--ntfy-topic`). Ne lève jamais d'exception, anti-doublon 60 s. Alertes : démarrage, entrée/sortie simulées, coupe-circuit, Chrome fermé, arrêt du bot, rapport du jour (`--report-hour`, défaut 21 h). Jamais de clé ni de donnée sensible dans un message. |
 | `gardien.py` / `lancer_gardien.bat` / `installer_demarrage.bat` | Gardien : relance Chrome en mode debug (port 9222, profil `C:\chrome-debug`) et `pilot.py --auto` s'ils tombent (pause croissante, 6 relances/h max puis alerte ntfy et arrêt). Refuse `--live`. `installer_demarrage.bat` le lance à l'ouverture de session Windows (tâche `FomoGardien`). Le PC doit rester allumé : pour s'en passer, voir mode cloud. |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
+| `summary.py --cloud` / `resume_cloud.bat` | Résumé du bot cloud : lit sans clé `raw.githubusercontent.com/neoniterre/fomo-pilot/data/` (`state.json`, `trades.jsonl`, `STOP`), ~5 min de retard (cache GitHub). Réseau coupe / 404 / JSON cassé = message clair, jamais de plantage. |
+| `.github/workflows/bot-cloud.yml` | **Bot PAPER dans le cloud, sans PC** : `pilot.py --auto --cloud` ~5 h 45 (`timeout 345m`), puis se relance tout seul (+ cron toutes les 6 h en filet). État (`state.json`, `history.json`, `trades.jsonl`) sauvegardé sur la branche **`data`** toutes les 15 min et repris au run suivant. **Arrêt d'urgence : créer un fichier `STOP` à la racine de la branche `data`** (ou désactiver le workflow dans l'onglet Actions). Secret GitHub `NTFY_TOPIC` pour les alertes. Ne doit JAMAIS contenir `--live` / `--auto-entry` (test `test_cloud_never_live_cli_and_workflows`). `cloud-test.yml` : essai court, sans relance. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
 | `test_*.py` | Tests sans réseau ni clé (`test_pilot.py` : reconnexion Chrome et garde-fou des clics avec un faux navigateur). Lancés aussi sur GitHub Actions à chaque push (`.github/workflows/tests.yml`). **Doivent passer avant chaque commit. Ne jamais supprimer un test.** |
 | `requirements.txt` | Versions exactes des paquets du venv (`pip install -r requirements.txt`). |
@@ -39,9 +45,11 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 .\venv\Scripts\python.exe test_notify.py
 .\venv\Scripts\python.exe test_gardien.py
 .\venv\Scripts\python.exe test_security.py
+.\venv\Scripts\python.exe test_summary.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50   # sans Chrome (python -m playwright install chromium)
 .\venv\Scripts\python.exe summary.py --watch
+.\venv\Scripts\python.exe summary.py --cloud            # bot cloud (ou double-clic resume_cloud.bat)
 ```
 Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro). Chrome doit tourner en mode debug
 (`--remote-debugging-port=9222 --user-data-dir="C:\chrome-debug"`) et être connecté à fomo.
@@ -64,13 +72,14 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 ## Workflow git
 - `git pull` avant de travailler, petits commits, message clair, `git push` sur `main`.
 - Ne jamais forcer un push. En cas de conflit : s'arrêter et expliquer.
-- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security), puis commiter.
+- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary), puis commiter.
   Avant de remplacer un fichier, `git diff` : un fichier écrit à partir d'une ancienne version efface les corrections. Garder `summary.py` aligné avec les lignes de log.
 
 ## État / à faire (priorité)
 1. **Fiabilité** : FAIT (reconnexion si Chrome fermé, BTC 3 sources, `history.json`). Reste : délais fomo plus tolérants.
 2. **Gardien + démarrage automatique** : FAIT (`gardien.py`), à valider sur le PC. Ne marche que PC allumé.
 3. **Alertes téléphone** : FAIT (ntfy, `notify.py`). Telegram (pour répondre au bot) : plus tard, si besoin.
-4. **Mode cloud** (sans PC) : `security.py` + `--cloud` FAIT (spec : `docs/SPEC_CLOUD.md`). Reste : vérifier RugCheck et
-   Chromium headless sur GitHub Actions, exécution planifiée, stockage de l'état.
+4. **Mode cloud** : FAIT (`security.py`, `--cloud`, `bot-cloud.yml` en continu sur GitHub Actions, état sur `data`,
+   `summary.py --cloud`). Reste : **valider une entrée simulée complète dans le cloud** (scan -> RugCheck/GoPlus ->
+   `risk.process` -> entrée paper -> sortie), aucune vue à ce jour (filtres momentum stricts).
 5. Passage en live : **seulement** après plusieurs jours de paper concluants, décision d'Elhadj.
