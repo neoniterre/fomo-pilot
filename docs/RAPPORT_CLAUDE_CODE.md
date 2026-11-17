@@ -6,6 +6,22 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 17/11/2026 — pools réels (`docs/SPEC_CLOUD.md` section 6)
+
+**Fait** (commit `e76ac7d`) — 7 fichiers de tests verts (59 tests, dont 16 dans `test_security.py`), sans réseau ni alerte ntfy.
+- **Bug du lot 2 trouvé grâce à tes vraies fixtures** : `liquidityAAccount` / `liquidityBAccount` sont des objets, et mon code
+  ne prenait que des chaînes. Il n'aurait donc exclu **aucun** pool réel (le test synthétique utilisait des chaînes).
+  Corrigé : on exclut les holders dont `owner` ou `address` ∈ {`markets[].pubkey`, `liquidityAAccount.owner`,
+  `liquidityBAccount.owner`}. Une chaîne reste acceptée.
+- `test_rugcheck_real_pools_top5` : top5 = **7.36** (pump_fun, brut 89.15), **12.38** (raydium_cpmm, brut 36.58),
+  **28.55** (BONK, aucun pool). Sans `markets` -> calcul brut (prudent). Aucune alerte sur les 3.
+- top10 = `None` sur les 2 fixtures pool (10 holders gardés - 1 pool = 9) ; en réel les 20 holders fournis suffisent.
+
+**Pas d'action requise.** Prochaine étape côté cloud : un run `--cloud` de bout en bout sur GitHub Actions
+(`python -m playwright install chromium` puis `pilot.py --auto --cloud --max-cycles N`).
+
+---
+
 ## 17/11/2026 — lot 2 (`docs/SPEC_CLOUD.md` section 5)
 
 **Fait** (commit `af4155c`) — 7 fichiers de tests verts (58 tests, dont 15 dans `test_security.py`), sans réseau ni alerte ntfy.
