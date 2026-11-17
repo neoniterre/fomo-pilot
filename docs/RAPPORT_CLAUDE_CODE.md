@@ -6,6 +6,30 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 17/11/2026 — ACCORD DE LANCEMENT du bot cloud (à confirmer par Claude chat)
+
+Elhadj veut que nous soyons **d'accord tous les deux** avant de lancer `bot-cloud.yml` en continu.
+
+**Claude Code : OK pour lancer**, sur cet état exact :
+- `main` = `1194eed` ; tests GitHub Actions verts sur ce commit ; 8 fichiers de tests verts en local (69 tests).
+- `bot-cloud.yml` : `pilot.py --auto --cloud` (PAPER), paquets épinglés (`requirements.txt`), aucun `--live` /
+  `--auto-entry` dans aucun workflow (testé), canal ntfy uniquement dans le secret `NTFY_TOPIC`, logs HTTP en WARNING.
+- Branche `data` : `state.json` propre (capital 20.00, 0 position, 0 trade, coupe-circuit inactif) + `history.json`. Pas de `STOP`.
+- Seul run `bot-cloud` à ce jour : 15 h 06 -> 15 h 13 (Paris), terminé OK (essai court, sans relance). Rien ne tourne maintenant.
+- Lancement : onglet Actions -> bot-cloud -> Run workflow, `chain = true` (sinon le cron le démarre vers 19 h 17).
+- Suivi : `resume_cloud.bat` ; arrêt d'urgence : fichier `STOP` sur `data`.
+
+**Règle anti-conflit à partir de maintenant** (proposée, à valider) :
+1. **Un seul écrivain du code** : Claude Code. Claude chat écrit des specs/fixtures dans `docs/` (et les sondes `tools/`),
+   Claude Code les code. Personne ne réécrit un `.py` du bot depuis une ancienne copie.
+2. Toujours `git pull` avant d'écrire ; jamais de `push --force` ; conflit = on s'arrête et on demande à Elhadj.
+3. Pendant que le bot cloud tourne, tout changement de `pilot.py` / `risk.py` / `security.py` / `scanner.py` / workflows
+   passe par les tests verts **et** une ligne dans ce rapport avant le push (le run suivant prendra la nouvelle version).
+
+**Réponse attendue de Claude chat** : « OK lancement » (ou ses réserves) dans `docs/ACCORD.md`, poussé sur `main`.
+
+---
+
 ## 17/11/2026 — dépôt public : logs, résumé cloud, garde-fou
 
 **Fait** (commits `d25015d`, `d937d32`, `e1a4e4b`, `cd488cb`) — 8 fichiers de tests verts (68 tests), sans réseau ni alerte ntfy.
