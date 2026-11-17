@@ -6,6 +6,7 @@ import time
 import httpx
 
 H = httpx.Client(timeout=20, headers={"User-Agent": "fomo-pilot-probe"})
+SHAPE = []
 POOL_KEYS = ("pubkey", "liquidityAAccount", "liquidityBAccount", "mintLPAccount")
 
 
@@ -39,8 +40,16 @@ def main():
         pool_ids = {}
         for m in d.get("markets") or []:
             for k in POOL_KEYS:
-                if m.get(k):
-                    pool_ids[m[k]] = k
+                v = m.get(k)
+                if isinstance(v, str) and v:
+                    pool_ids[v] = k
+                elif isinstance(v, dict):
+                    if not SHAPE:
+                        SHAPE.append(1)
+                        print("[POOLS] forme d'un champ objet", k, ":", json.dumps(v)[:400])
+                    for sub, sv in v.items():
+                        if isinstance(sv, str) and len(sv) > 30:
+                            pool_ids[sv] = f"{k}.{sub}"
         th = d.get("topHolders") or []
         hits = []
         for i, h in enumerate(th[:20]):
