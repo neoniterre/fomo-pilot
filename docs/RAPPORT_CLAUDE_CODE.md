@@ -30,10 +30,15 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 **Vérifié avant tout** : historique git complet (toutes branches) sans clé API, sans canal ntfy, `.env` jamais commité ;
 la branche `data` ne contient que `state.json` et `history.json`. Je n'ai touché ni à `data`, ni aux secrets, ni au `.env`.
 
+**Versions épinglées (fait ensuite, à la demande d'Elhadj)** : `bot-cloud.yml` et `cloud-test.yml` font maintenant
+`python -m pip install -r requirements.txt && python -m playwright install --with-deps chromium` (mêmes versions que le
+PC et `tests.yml`). Résolution vérifiée à blanc pour Python 3.12 Linux : 23 paquets, OK. Test
+`test_bot_workflows_install_pinned_requirements` (tout `pip install` de ces 2 workflows passe par `requirements.txt`,
+et chaque ligne de `requirements.txt` est en `==`). Les sondes (`probe*.yml`) ne sont pas touchées : lancées à la main,
+elles ne font pas tourner le bot. **Prends effet au prochain run** de `bot-cloud.yml` (le run en cours garde ses paquets).
+8 fichiers de tests verts (69 tests).
+
 **Remarques pour toi** (non modifié, hors demande) :
-- `bot-cloud.yml` installe `httpx playwright python-dotenv` **sans versions** (pas `requirements.txt`) et en Python 3.12 :
-  une nouvelle version d'un paquet peut casser le bot sans prévenir. Proposition : `pip install -r requirements.txt`
-  (ou au moins épingler ces 3 versions) ; `tests.yml` tourne déjà avec `requirements.txt`.
 - Le `pilot.log` local d'Elhadj contient encore l'URL ntfy des runs d'avant le correctif (fichier local, exclu de git,
   Elhadj a choisi de le laisser tel quel).
 
