@@ -16,6 +16,17 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "fixt
     RUG_BONK = json.load(_f)
 
 
+def _fixture(name):
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+# --- REAL RugCheck answers with the pool in the top holders (GitHub Actions, 17/11/2026, 10 holders kept).
+#     liquidityAAccount / liquidityBAccount are OBJECTS {owner, mint, ...}.
+RUG_PUMPFUN = _fixture("fixture_rugcheck_pool_pumpfun.json")     # ADA, pump_fun curve = 82.67 %
+RUG_RAYDIUM = _fixture("fixture_rugcheck_pool_raydium.json")     # OGS, raydium_cpmm pool = 26.36 %
+
+
 def rug_with_pools(markets="__keep__"):
     """SYNTHETIC memecoin (not observed on BONK): the pool vault holds 62 % of the supply, the pool
     account itself (as owner) 9 %, then ordinary holders. Field names as in the real RugCheck markets."""
@@ -117,6 +128,21 @@ def test_rugcheck_excludes_identifiable_pools():
     # markets present but no usable account field -> nothing excluded either
     r = parse_rugcheck(rug_with_pools([{"marketType": "x", "lp": {}}]))
     assert r["top5_holders_pct"] == round(62.0 + 9.0 + 4.0 + 3.0 + 2.5, 2)
+
+
+def test_rugcheck_real_pools_top5():
+    """SPEC_CLOUD §6: top5 without the pool = 7.36 (pump_fun), 12.38 (raydium_cpmm), 28.55 (BONK, no pool)."""
+    for fixture, top5, raw_top5 in ((RUG_PUMPFUN, 7.36, 89.15), (RUG_RAYDIUM, 12.38, 36.58), (RUG_BONK, 28.55, 28.55)):
+        r = parse_rugcheck(fixture)
+        assert r["ok"] and r["top5_holders_pct"] == top5, (fixture.get("mint"), r)
+        assert r["red_flags"] == []
+        raw = parse_rugcheck({k: v for k, v in fixture.items() if k != "markets"})   # markets unreadable
+        assert raw["top5_holders_pct"] == raw_top5 and "calcul brut" in raw["source"]
+    for fixture in (RUG_PUMPFUN, RUG_RAYDIUM):
+        r = parse_rugcheck(fixture)
+        assert r["source"] == "rugcheck (1 compte(s) de pool exclu(s))"
+        assert r["top10_holders_pct"] is None          # 10 kept in the fixture - 1 pool = 9: no partial top10
+    assert isinstance(RUG_PUMPFUN["markets"][0]["liquidityAAccount"], dict)   # objects, not strings
 
 
 def test_rugcheck_pool_exclusion_keeps_top10_honest():

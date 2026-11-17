@@ -118,17 +118,23 @@ POOL_FIELDS = ("pubkey", "liquidityAAccount", "liquidityBAccount")
 
 
 def _rugcheck_pool_accounts(markets):
-    """Accounts that belong to a pool (market pubkey + its two token vaults). Returns (set, known).
+    """Accounts that belong to a pool. Returns (set, known).
+    Real RugCheck (SPEC_CLOUD §6, pump_fun + raydium_cpmm): `pubkey` is a string, `liquidityAAccount` /
+    `liquidityBAccount` are OBJECTS {mint, owner, amount...}; the pool's top-holder row has
+    owner == liquidityXAccount.owner. A plain string is also accepted (account address).
     known=False when `markets` is missing / not a list: then nothing is excluded (raw sum, cautious)."""
     if not isinstance(markets, list):
         return set(), False
     accounts = set()
     for m in markets:
-        if isinstance(m, dict):
-            for f in POOL_FIELDS:
-                v = m.get(f)
-                if isinstance(v, str) and v.strip():
-                    accounts.add(v.strip())
+        if not isinstance(m, dict):
+            continue
+        for f in POOL_FIELDS:
+            v = m.get(f)
+            if isinstance(v, dict):
+                v = v.get("owner")
+            if isinstance(v, str) and v.strip():
+                accounts.add(v.strip())
     return accounts, True
 
 
