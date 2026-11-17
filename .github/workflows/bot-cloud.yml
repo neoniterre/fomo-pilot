@@ -1,0 +1,80 @@
+name: bot-cloud
+# Bot en PAPER sans PC : tourne ~5 h 45 puis se relance tout seul. L'état (positions, historique de prix,
+# trades) est sauvegardé sur la branche `data` toutes les 15 min. Arrêt d'urgence : créer un fichier STOP
+# à la racine de la branche `data`, ou désactiver ce workflow (onglet Actions).
+on:
+  schedule:
+    - cron: "17 */6 * * *"        # filet de sécurité si la chaîne s'interrompt
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "durée du run en minutes (défaut 345)"
+        default: "345"
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: bot-cloud
+  cancel-in-progress: false
+env:
+  TZ: Europe/Paris                # rapport quotidien et changement de jour à l'heure de Paris
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Branche data (état)
+        run: |
+          git config user.name "fomo-pilot-bot"
+          git config user.email "bot@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin data >/dev/null 2>&1; then
+            git fetch origin data
+            git worktree add ../data origin/data -B data
+          else
+            git worktree add --orphan -b data ../data
+          fi
+          if [ -f ../data/STOP ]; then echo "STOP présent : arrêt demandé."; echo "STOPPED=1" >> "$GITHUB_ENV"; fi
+          for f in state.json history.json trades.jsonl; do [ -f ../data/$f ] && cp ../data/$f . || true; done
+          ls -la state.json history.json trades.jsonl 2>/dev/null || echo "(premier run : pas d'état)"
+
+      - uses: actions/setup-python@v5
+        if: env.STOPPED != '1'
+        with:
+          python-version: "3.12"
+      - name: Dépendances
+        if: env.STOPPED != '1'
+        run: pip install httpx playwright python-dotenv && playwright install --with-deps chromium
+
+      - name: Bot (PAPER, --cloud)
+        if: env.STOPPED != '1'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          save() {
+            for f in state.json history.json trades.jsonl; do [ -f "$f" ] && cp "$f" ../data/ || true; done
+            cd ../data
+            git add -A
+            if ! git diff --cached --quiet; then
+              git commit -q -m "état $(date -u +%FT%TZ)"
+              for i in 1 2 3; do git push -q origin HEAD:data && break || { git pull -q --rebase origin data || true; sleep 3; }; done
+            fi
+            cd - >/dev/null
+          }
+          (while sleep 900; do save; done) &
+          SAVER=$!
+          timeout "${{ github.event.inputs.minutes || '345' }}m" python pilot.py --auto --cloud \
+            --capital 20 --min-30m 20 --min-1h 50 --scan-every 60 --interval 30 || echo "fin du bot, code $?"
+          kill $SAVER 2>/dev/null || true
+          save
+          echo "----- fin de pilot.log (ntfy masqué) -----"
+          tail -n 60 pilot.log | grep -v "HTTP Request" | sed -E 's#ntfy\.sh/[^ "]+#ntfy.sh/***#g' || true
+
+      - name: Relance de la chaîne
+        if: always() && env.STOPPED != '1' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # le run suivant attend celui-ci (concurrency) puis reprend l'état de la branche data
+          gh workflow run bot-cloud.yml --ref main -f minutes=345 || echo "relance impossible (le cron prendra le relais)"
