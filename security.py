@@ -10,10 +10,11 @@ Fail-closed everywhere and NEVER raises: any error -> ok=False, holders None,
 red_flags = ["donnée sécurité indisponible"] -> risk.py refuses the entry.
 
 Choices made where docs/SPEC_CLOUD.md left room (always the most cautious option):
-  - RugCheck: pools / LP accounts are NOT excluded from top5/top10 (field names not verified on a real
-    response): raw sum, noted in `source`. Over-estimates concentration = safer.
-  - RugCheck: freezeAuthority / mintAuthority / rugged / risks / topHolders missing from the report -> flag
-    or ok=False (unknown is treated as bad). `warn` risks do not block (spec), they go to `warnings`.
+  - RugCheck: a top holder whose `address` or `owner` equals a market's `pubkey`, `liquidityAAccount` or
+    `liquidityBAccount` is a pool and is excluded (SPEC_CLOUD lot 2). `markets` missing / unreadable -> nothing
+    excluded (raw sum, cautious), noted in `source`.
+  - RugCheck: freezeAuthority / mintAuthority = null -> no authority, no flag (real answer). Key ABSENT, or
+    rugged / risks / topHolders missing -> flag or ok=False (unknown is treated as bad). `warn` risks do not block (spec), they go to `warnings`.
   - GoPlus: every holder counted (contracts and locked included) except addresses listed as DEX pairs.
   - GoPlus: honeypot / buy_tax / sell_tax unknown -> flag; is_open_source == "0" -> flag (GoPlus cannot
     analyse an unverified contract); is_mintable == "1" -> flag, no stablecoin exception (memecoins only).
@@ -72,7 +73,11 @@ def parse_rugcheck(d) -> dict:
     if not isinstance(holders, list) or not isinstance(risks, list):
         raise SecurityError("rugcheck: topHolders ou risks absent")
 
-    pcts = [_num(h.get("pct")) if isinstance(h, dict) else None for h in holders]
+    pools, pools_known = _rugcheck_pool_accounts(d.get("markets"))
+    kept = [h for h in holders
+            if not (isinstance(h, dict) and ({str(h.get("address") or ""), str(h.get("owner") or "")} & pools))]
+    excluded = len(holders) - len(kept)
+    pcts = [_num(h.get("pct")) if isinstance(h, dict) else None for h in kept]
     flags, warnings = [], []
 
     rugged = d.get("rugged")
@@ -89,18 +94,42 @@ def parse_rugcheck(d) -> dict:
             flags.append("danger: " + name)
         elif level:
             warnings.append(f"{level}: {name}")
+    # null (present, value None) = no authority = OK (real RugCheck answer). Absent key = unknown = flag.
     for key, label in (("freezeAuthority", "freeze authority active"), ("mintAuthority", "mint authority active")):
         if key not in d:
             flags.append(label.replace("active", "inconnue"))
-        elif d.get(key):
+        elif d[key] not in (None, "", False):
             flags.append(label)
     insiders = sum(1 for h in holders if isinstance(h, dict) and h.get("insider") is True)
     if insiders:
         flags.append(f"{insiders} holder(s) insider dans le top")
 
+    if not pools_known:
+        src = "rugcheck (markets illisibles : calcul brut, pools inclus)"
+    elif excluded:
+        src = f"rugcheck ({excluded} compte(s) de pool exclu(s))"
+    else:
+        src = "rugcheck (aucun pool dans le top)"
     return {"top5_holders_pct": _top(pcts, 5), "top10_holders_pct": _top(pcts, 10), "red_flags": flags,
-            "warnings": warnings, "source": "rugcheck (calcul brut, pools inclus)", "ok": True,
-            "score": _num(d.get("score_normalised"))}
+            "warnings": warnings, "source": src, "ok": True, "score": _num(d.get("score_normalised"))}
+
+
+POOL_FIELDS = ("pubkey", "liquidityAAccount", "liquidityBAccount")
+
+
+def _rugcheck_pool_accounts(markets):
+    """Accounts that belong to a pool (market pubkey + its two token vaults). Returns (set, known).
+    known=False when `markets` is missing / not a list: then nothing is excluded (raw sum, cautious)."""
+    if not isinstance(markets, list):
+        return set(), False
+    accounts = set()
+    for m in markets:
+        if isinstance(m, dict):
+            for f in POOL_FIELDS:
+                v = m.get(f)
+                if isinstance(v, str) and v.strip():
+                    accounts.add(v.strip())
+    return accounts, True
 
 
 def parse_goplus(d, address: str) -> dict:

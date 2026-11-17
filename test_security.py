@@ -7,19 +7,29 @@ import types
 
 from security import UNAVAILABLE, SecurityChecker, parse_goplus, parse_rugcheck
 
-# --- RugCheck BONK, 17/11/2026. RECONSTRUCTED from docs/SPEC_CLOUD.md (top5 28.55 % / top10 38.45 %):
-#     api.rugcheck.xyz was unreachable from the dev PC (TLS certificate not trusted). Field names as in the spec.
+# --- RugCheck BONK, REAL response 17/11/2026 (fetched on GitHub Actions, trimmed): docs/fixture_rugcheck_bonk.json
+#     (api.rugcheck.xyz is unreachable from the dev PC: TLS certificate not trusted).
+import os
 BONK = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-_PCTS = [10.12, 6.03, 5.40, 3.90, 3.10, 2.50, 2.20, 1.90, 1.70, 1.60,
-         1.20, 1.10, 1.00, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30]
-RUG_BONK = {
-    "mint": BONK, "rugged": False, "score_normalised": 7, "totalHolders": 1012345,
-    "freezeAuthority": None, "mintAuthority": None,
-    "topHolders": [{"address": f"H{i:02d}", "owner": f"O{i:02d}", "pct": p, "insider": False}
-                   for i, p in enumerate(_PCTS)],
-    "risks": [{"name": "Mutable metadata", "level": "warn", "description": "metadata can be changed"}],
-    "markets": [], "lockers": {}, "totalMarketLiquidity": 1.0e7,
-}
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "fixture_rugcheck_bonk.json"),
+          encoding="utf-8") as _f:
+    RUG_BONK = json.load(_f)
+
+
+def rug_with_pools(markets="__keep__"):
+    """SYNTHETIC memecoin (not observed on BONK): the pool vault holds 62 % of the supply, the pool
+    account itself (as owner) 9 %, then ordinary holders. Field names as in the real RugCheck markets."""
+    holders = [{"address": "VaultA111", "owner": "AmmAuth1", "pct": 62.0, "insider": False},      # = liquidityAAccount
+               {"address": "Acc0002", "owner": "Pool1111", "pct": 9.0, "insider": False},         # owner = pool pubkey
+               ] + [{"address": f"Acc{i:04d}", "owner": f"Own{i:04d}", "pct": p, "insider": False}
+                    for i, p in enumerate([4.0, 3.0, 2.5, 2.0, 1.5, 1.2, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5], start=3)]
+    d = dict(RUG_BONK, topHolders=holders, risks=[])
+    d["markets"] = ([{"pubkey": "Pool1111", "marketType": "pump_amm", "liquidityAAccount": "VaultA111",
+                      "liquidityBAccount": "VaultB111", "lp": {"lpLockedPct": 100}}]
+                    if markets == "__keep__" else markets)
+    if markets is None:
+        d.pop("markets")
+    return d
 
 # --- GoPlus USDT Ethereum, REAL response 17/11/2026 (trimmed to the fields we use). percent = FRACTION.
 USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
@@ -76,10 +86,44 @@ def check(script, chain, addr):
 
 # ------------------------------------------------------------------------------------------- RugCheck
 def test_rugcheck_bonk_holders():
+    assert RUG_BONK["freezeAuthority"] is None and RUG_BONK["mintAuthority"] is None   # real answer: null, present
     r = parse_rugcheck(RUG_BONK)
     assert r["ok"] and r["top5_holders_pct"] == 28.55 and r["top10_holders_pct"] == 38.45
-    assert r["red_flags"] == []                                     # "warn" does not block (spec)
-    assert r["warnings"] == ["warn: Mutable metadata"] and "pools inclus" in r["source"]
+    assert r["red_flags"] == []                                     # null authorities, not rugged: no flag
+    assert r["warnings"] == ["warn: Mutable metadata"]              # "warn" does not block (spec)
+    assert r["source"] == "rugcheck (aucun pool dans le top)" and r["score"] == 7
+
+
+def test_rugcheck_null_vs_absent_authority():
+    f = parse_rugcheck(dict(RUG_BONK, freezeAuthority=None, mintAuthority=""))["red_flags"]
+    assert f == []                                                  # null / empty = no authority
+    f = parse_rugcheck(dict(RUG_BONK, freezeAuthority="FrZ1"))["red_flags"]
+    assert f == ["freeze authority active"]
+    d = {k: v for k, v in RUG_BONK.items() if k != "mintAuthority"}
+    assert parse_rugcheck(d)["red_flags"] == ["mint authority inconnue"]   # absent = unknown = flag
+
+
+def test_rugcheck_excludes_identifiable_pools():
+    r = parse_rugcheck(rug_with_pools())
+    # 62 % vault (address = liquidityAAccount) and 9 % account owned by the pool (owner = pubkey) are excluded
+    assert r["top5_holders_pct"] == round(4.0 + 3.0 + 2.5 + 2.0 + 1.5, 2)
+    assert r["top10_holders_pct"] == round(4.0 + 3.0 + 2.5 + 2.0 + 1.5 + 1.2 + 1.0 + 0.9 + 0.8 + 0.7, 2)
+    assert r["source"] == "rugcheck (2 compte(s) de pool exclu(s))"
+    # markets missing or unreadable -> nothing excluded (raw sum, cautious): 62 % pool counted -> refused later
+    for markets in (None, "garbage"):
+        r = parse_rugcheck(rug_with_pools(markets))
+        assert r["top5_holders_pct"] == round(62.0 + 9.0 + 4.0 + 3.0 + 2.5, 2)
+        assert "calcul brut" in r["source"]
+    # markets present but no usable account field -> nothing excluded either
+    r = parse_rugcheck(rug_with_pools([{"marketType": "x", "lp": {}}]))
+    assert r["top5_holders_pct"] == round(62.0 + 9.0 + 4.0 + 3.0 + 2.5, 2)
+
+
+def test_rugcheck_pool_exclusion_keeps_top10_honest():
+    d = rug_with_pools()
+    d["topHolders"] = d["topHolders"][:11]                          # 11 listed - 2 pools = 9 left
+    r = parse_rugcheck(d)
+    assert r["top5_holders_pct"] == 13.0 and r["top10_holders_pct"] is None   # no partial top10
 
 
 def test_rugcheck_red_flags():
