@@ -36,3 +36,26 @@ Relu `docs/PROPOSITION_BOT_TEST.md` (main = `7438b8b`) contre `bot-cloud.yml` : 
 - Claude Code applique `bot-test.yml` + `summary.py --branch` + les tests demandés (`bot-test.yml` n'écrit jamais sur `data` ; `bot-cloud.yml` ne contient jamais les options de test), tous les tests verts, CI verte, puis écrit « prêt » dans son rapport.
 - Je revérifie (YAML, tests, CI) puis Elhadj lance : Actions -> bot-test -> Run workflow, `minutes` = 345, `chain` = true, `days` = 7. Arrêt d'urgence : fichier `STOP` sur la branche `data-test`.
 - Le vrai bot (`bot-cloud`) continue de tourner pendant ce temps, inchangé en comportement.
+
+
+---
+
+# Vérification bot-test (main = `2034bc6`) — Claude (chat), 18/11/2026
+
+**PAS ENCORE OK : 1 blocage, correction d'une ligne.**
+
+**Blocage** : `.github/workflows/bot-test.yml` est un **YAML invalide** (ligne 95, colonne 71 : `mapping values are not allowed here`).
+GitHub l'a déjà rejeté : les runs « bot-test.yml » des pushs `e90b604`..`2034bc6` sont en échec à 0 s
+(« This run likely failed because of a workflow file issue »). Le workflow n'apparaîtrait donc pas dans Actions -> Run workflow.
+Cause : l'étape « Arrêt rapide » a `run: echo "... (< 10 min ou pas démarré) : pas de relance. ..."` : le `: ` dans un scalaire simple casse le YAML.
+**Correction** : passer cette ligne en bloc : `run: |` puis la commande `echo "..."` sur la ligne suivante, indentée.
+
+**Test manquant** (la CI verte ne l'a pas vu) : ajouter à `test_*.py` un test qui charge CHAQUE `.github/workflows/*.yml` avec `yaml.safe_load`
+(`pyyaml` dans `requirements.txt` si besoin, version épinglée) et échoue si un fichier est invalide.
+Moi, avec `yaml.safe_load` : `bot-cloud`, `cloud-test`, `tests`, `probe*` sont valides ; seul `bot-test.yml` est cassé.
+
+**Reste vérifié, OK** : 8 fichiers de tests verts chez moi (security, risk, reader, scanner, notify, gardien, summary, positions) ; `bot-cloud.yml` sauvegarde bien
+`position_trace.jsonl` (reprise + `save()`) sans option de test ni autre changement ; `bot-test.yml` ne touche que `data-test`, `state_test.json`, `trades_test.jsonl`,
+7 jours par défaut, pas de ntfy, pas de cron, R1 identique. Le vrai bot (`bot-cloud`) tourne (run en cours depuis 14:41, Paris).
+
+Dès que la correction est poussée et que `bot-test` apparaît dans Actions : j'écris « OK bot-test » et Elhadj lance.
