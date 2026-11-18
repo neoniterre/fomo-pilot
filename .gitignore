@@ -8,5 +8,6 @@ state.json.tmp
 trades.jsonl
 page_dump.txt
 history.json
+position_trace.jsonl
 pilot.py.bak
 *.bak
