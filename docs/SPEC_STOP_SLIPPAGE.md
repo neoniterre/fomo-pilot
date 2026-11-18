@@ -14,6 +14,9 @@ Deux explications possibles, à départager avec des traces :
    ou a un prix périmé, la moyenne peut sauter sans que le "vrai" prix bouge. `watch_positions` prend aussi `max(groups, key=liq)`.
    Autre piste : relevés manqués (`WARNING ... price unavailable this cycle, exits not evaluated`).
 
+## PRIORITÉ (demande d'Elhadj 18/11 : 30 s est trop long)
+Faire le point 4 EN PREMIER : boucle dédiée aux positions ouvertes toutes les ~10 s (option `--watch-interval`, défaut 10), indépendante du scan (60 s). Ne pas descendre sous 5 s (DexScreener a un délai propre). Test sans réseau : la boucle position tourne à sa cadence même pendant un scan.
+
 ## À faire (ordre)
 1. **Tracer** : pendant qu'une position est ouverte, écrire une ligne par cycle dans `position_trace.jsonl` : `ts`, `token`, `price`, `change_vs_entry_pct`,
    nombre de pools, liquidité totale, prix du pool principal seul, et un booléen « relevé manqué ». Sans réseau ni clé, ne bloque jamais le bot.
