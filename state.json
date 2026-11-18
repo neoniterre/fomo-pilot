@@ -3,7 +3,20 @@
   "day": "2026-11-18",
   "day_start_capital": 20.0,
   "daily_pnl": 0.0,
-  "trades_today": 0,
+  "trades_today": 1,
   "halted": false,
-  "positions": {}
+  "positions": {
+    "CYBERLEEK": {
+      "token": "CYBERLEEK",
+      "entry_price": 0.0029078481944692356,
+      "initial_usd": 1.33,
+      "stop_pct": 12.0,
+      "high": 0.0029078481944692356,
+      "remaining_frac": 1.0,
+      "tp1_done": false,
+      "tp2_done": false,
+      "opened_at": "2026-11-18T04:30:39.543673+00:00",
+      "ref": "solana:ApZuxdpzMrbEYTGEzeY9afh5pj9d6qPRJCTgQYiipbKg"
+    }
+  }
 }
