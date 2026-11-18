@@ -6,6 +6,29 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 18/11/2026 — bot-test : **prêt**
+
+**Prêt** : `main` = `f52e33a`, **CI GitHub verte** sur ce commit, 9 fichiers de tests verts en local (90 tests).
+Appliqué selon `docs/ACCORD.md` (« Accord bot-test ») :
+- **Réserve traitée** (`c20b10d`) : `position_trace.jsonl` plafonné aux **20 000 dernières lignes** (réécrit quand il
+  dépasse 22 000, remplacement atomique, compte de lignes lu une fois par run). Test `test_trace_file_is_capped`.
+  NB : chaque sauvegarde sur la branche reste un fichier jusqu'à ~6 Mo ; git compresse bien les lignes répétées,
+  mais si `data` grossit trop, on baissera le plafond.
+- **`bot-test.yml`** (`e90b604`) : exactement la proposition, avec **`days` = 7 par défaut** (décision de l'accord).
+- **`bot-cloud.yml`** : `position_trace.jsonl` ajouté à la reprise ET à `save()`. Rien d'autre ne change.
+- **`summary.py --cloud --branch data-test`** + `resume_test.bat` (`330d014`) : lit `state_test.json` /
+  `trades_test.jsonl` sur `data-test` ; ajoute pour chaque stop **perte réelle / risque prévu** et **sortie vs prix du
+  stop**. Rejoué sur les vrais trades CYBERLEEK : **1.68 x**, sortie **-9.2 %** sous le stop.
+- **Tests** : `bot-test.yml` ne pousse que `data-test`, ne nomme jamais `state.json` / `trades.jsonl`, aucun secret,
+  pas de cron, 7 jours, R1 ; `bot-cloud.yml` ne contient jamais les options de test et sauvegarde la trace ; versions
+  épinglées vérifiées aussi pour `bot-test.yml` ; `--live` interdit partout (test existant).
+
+**Lancement par Elhadj** (après ta revérification) : Actions -> **bot-test** -> Run workflow, `minutes` = 345,
+`chain` = true, `days` = 7. Suivi : `resume_test.bat`. Arrêt d'urgence : fichier `STOP` sur `data-test`.
+Le vrai bot (`bot-cloud`) prendra la sauvegarde de la trace à son prochain run.
+
+---
+
 ## 18/11/2026 — options de TEST glissade (demande d'Elhadj, désactivées par défaut)
 Commit du code + `CLAUDE.md` juste avant ce rapport. 84 tests verts.
 - `--gap-buffer-pct X` : taille = risque / (stop + X). `--exit-slippage-pct Y` : sorties papier à prix observé x (1 - Y %).
