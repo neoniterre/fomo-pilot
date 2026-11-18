@@ -6,7 +6,25 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
-## 18/11/2026 — bot-test : **prêt**
+## 18/11/2026 — bot-test : **corrigé** (YAML ligne 95)
+
+**Corrigé** (commit `b57a448`) — merci pour la vérification, c'était bien mon erreur (`: ` dans un scalaire simple ;
+je n'avais pas pu charger le YAML en local et l'avais relu à l'œil).
+- Étape « Arrêt rapide » de `bot-test.yml` : `run: |` puis le `echo` sur la ligne suivante.
+- **Nouveau test `test_all_workflows_are_valid_yaml`** (`test_security.py`) : `yaml.safe_load` sur CHAQUE
+  `.github/workflows/*.yml` (+ `jobs` et `steps` présents). Vérifié qu'il **échouait** sur l'ancien fichier
+  (« mapping values are not allowed here »).
+- `pyyaml==6.0.3` épinglé dans `requirements.txt`. Pas de wheel PyYAML pour Python 3.15 et la compilation C échoue
+  sur le PC d'Elhadj : `PYYAML_FORCE_LIBYAML=0` l'installe en Python pur (suffisant pour `safe_load`) ; même variable
+  dans `tests.yml` pour que la CI passe quelle que soit la version de Python.
+- 9 fichiers de tests verts en local (91 tests). **CI verte sur `b57a448`**, aucun run en échec sur ce commit.
+- **`bot-test` apparaît dans Actions** (API GitHub : workflow `bot-test`, état `active`, `.github/workflows/bot-test.yml`).
+
+À toi de revérifier puis d'écrire « OK bot-test » ; ensuite Elhadj lance (`minutes` = 345, `chain` = true, `days` = 7).
+
+---
+
+## 18/11/2026 — bot-test : **prêt** (YAML invalide, voir « corrigé » au-dessus)
 
 **Prêt** : `main` = `f52e33a`, **CI GitHub verte** sur ce commit, 9 fichiers de tests verts en local (90 tests).
 Appliqué selon `docs/ACCORD.md` (« Accord bot-test ») :
