@@ -24,7 +24,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 | `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. Garde-fous clics : `ui_gate` (texte du sélecteur) puis `element_gate` (texte RÉEL de l'élément, du bouton parent et du submit du formulaire, juste avant le clic). Ne jamais les affaiblir. |
 | `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`, `save_history` / `load_history` (`history.json`). |
 | `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
-| `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. `--auto --cloud` : sans Chrome debug ni modèle ni clé Anthropic, listes fomo publiques en Chromium headless, holders/alertes via `security.py` ; refuse `--live`/`--auto-entry`, exige `--auto`, ignore `--navigate` (aucun clic), pas de reconnexion (Chromium arrêté = bot arrêté + alerte). |
+| `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. `--auto --cloud` : sans Chrome debug ni modèle ni clé Anthropic, listes fomo publiques en Chromium headless, holders/alertes via `security.py` ; refuse `--live`/`--auto-entry`, exige `--auto`, ignore `--navigate` (aucun clic), pas de reconnexion (Chromium arrêté = bot arrêté + alerte). **Positions ouvertes : boucle dédiée** (`position_watcher`) toutes les `--watch-interval` s (défaut et minimum 5), séparée du scan ; sur HTTP 429 DexScreener : x2 jusqu'à 60 s puis retour à 5 s. **Prix de sortie = pool principal** (le plus liquide), pas la moyenne multi-pools ; si le pool principal change : min(nouveau principal, moyenne). Prix d'entrée aussi sur le pool principal (même base). Trace : `position_trace.jsonl` (à côté de `state.json`, une ligne par position et par relevé : prix utilisé, prix du pool principal, moyenne, variation vs entrée, nb de pools, liquidité, relevé manqué, fermé), exclu de git. |
 | `security.py` | Mode cloud : `check_token(chain, address)` -> top5/top10 holders + `red_flags`. Solana = RugCheck, EVM (ethereum, bsc, base, arbitrum, polygon) = GoPlus (`percent` = fraction x100). Fail-closed, jamais d'exception : erreur / 429 après 1 retry / timeout / JSON cassé / chaîne inconnue = `ok=False` + « donnée sécurité indisponible ». Choix prudents documentés en tête du fichier (RugCheck : holders dont `address`/`owner` = `markets[].pubkey` ou `markets[].liquidityA/BAccount.owner` (OBJETS, pas des chaînes) exclus, `markets` illisible = calcul brut ; autorité `null` = OK, clé absente = alerte ; `warn` -> `warnings`, ne bloque pas). |
 | `notify.py` | Alertes téléphone via ntfy (gratuit, sans compte). Canal secret dans `.env` : `NTFY_TOPIC=...` (ou `--ntfy-topic`). Ne lève jamais d'exception, anti-doublon 60 s. Alertes : démarrage, entrée/sortie simulées, coupe-circuit, Chrome fermé, arrêt du bot, rapport du jour (`--report-hour`, défaut 21 h). Jamais de clé ni de donnée sensible dans un message. |
 | `gardien.py` / `lancer_gardien.bat` / `installer_demarrage.bat` | Gardien : relance Chrome en mode debug (port 9222, profil `C:\chrome-debug`) et `pilot.py --auto` s'ils tombent (pause croissante, 6 relances/h max puis alerte ntfy et arrêt). Refuse `--live`. `installer_demarrage.bat` le lance à l'ouverture de session Windows (tâche `FomoGardien`). Le PC doit rester allumé : pour s'en passer, voir mode cloud. |
@@ -46,6 +46,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 .\venv\Scripts\python.exe test_gardien.py
 .\venv\Scripts\python.exe test_security.py
 .\venv\Scripts\python.exe test_summary.py
+.\venv\Scripts\python.exe test_positions.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50   # sans Chrome (python -m playwright install chromium)
 .\venv\Scripts\python.exe summary.py --watch
@@ -57,6 +58,10 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 ## Données réelles à connaître
 - DexScreener : `/latest/dex/search?q=` et `/latest/dex/tokens/{adresse}`. Champs : `priceUsd` (string),
   `priceChange.m5/h1/h6/h24`, `volume.*`, `liquidity.usd`, `marketCap`, `pairCreatedAt` (ms). **Pas de variation 30 min.**
+- **Stop qui glisse (CYBERLEEK, 18/11/2026)** : stop -12 % sorti à -20,1 %. Relevés de la branche `data` : -11,8 % de 04:45:17
+  à 04:47:45 UTC puis -20,1 % au relevé suivant (37 s) et le prix est resté vers -19 % : **vrai trou de prix**, pas un artefact
+  multi-pools (pool principal = 99 % de la liquidité). Le prix DexScreener semble ne changer qu'environ toutes les ~60-75 s
+  (paires de valeurs identiques à 37 s d'écart) : relever toutes les 5 s n'empêche pas ces trous ; à mesurer avec `position_trace.jsonl`.
 - Les symboles ne sont pas uniques (faux « GTA6 » sur BSC avec +507 % et sans liquidité) -> toujours associer par prix et liquidité.
 - RugCheck (`api.rugcheck.xyz`) : injoignable depuis le PC d'Elhadj le 17/11/2026 (certificat TLS non reconnu, ne PAS
   désactiver la vérification) -> en local, toutes les entrées Solana `--cloud` sont refusées. Joignable depuis GitHub Actions.
@@ -72,7 +77,7 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 ## Workflow git
 - `git pull` avant de travailler, petits commits, message clair, `git push` sur `main`.
 - Ne jamais forcer un push. En cas de conflit : s'arrêter et expliquer.
-- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary), puis commiter.
+- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary, positions), puis commiter.
   Avant de remplacer un fichier, `git diff` : un fichier écrit à partir d'une ancienne version efface les corrections. Garder `summary.py` aligné avec les lignes de log.
 
 ## État / à faire (priorité)
