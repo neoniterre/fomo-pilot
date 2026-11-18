@@ -1,0 +1,2 @@
+{"mode": "paper", "side": "buy", "token": "DacityCoin", "usd": 1.2, "theoretical_price": 0.001134, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-18T17:01:46.017045+00:00"}
+{"mode": "paper", "side": "sell", "token": "DacityCoin", "frac": 1.0, "theoretical_price": 0.0009743, "fill_price": 0.000964557, "slippage_pct": -1.0, "pnl_usd": -0.1793, "reason": "stop-loss (-14.1%)", "ts": "2026-11-18T17:02:29.960894+00:00"}
