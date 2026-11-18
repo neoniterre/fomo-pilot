@@ -335,7 +335,7 @@ def test_bot_workflows_install_pinned_requirements():
     """The workflows that RUN the bot install the exact versions of requirements.txt (a silent package
     update must not change the cloud bot), and requirements.txt pins every package with ==."""
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in ("bot-cloud.yml", "cloud-test.yml"):
+    for name in ("bot-cloud.yml", "cloud-test.yml", "bot-test.yml"):
         txt = open(os.path.join(here, ".github", "workflows", name), encoding="utf-8").read()
         installs = [l.strip() for l in txt.splitlines() if "pip install" in l]
         assert installs and all("pip install -r requirements.txt" in l for l in installs), (name, installs)
@@ -389,6 +389,41 @@ def test_bot_cloud_no_relaunch_loop_on_quick_crash():
     assert "secrets.NTFY_TOPIC" in quick and "ntfy.sh/$NTFY_TOPIC" in quick
     names = list(steps)
     assert names.index("Arrêt rapide (plantage au démarrage)") < names.index("Relance de la chaîne")
+
+
+def _wf(name):
+    here = os.path.dirname(os.path.abspath(__file__))
+    return open(os.path.join(here, ".github", "workflows", name), encoding="utf-8").read()
+
+
+def test_bot_test_is_isolated_from_the_real_bot():
+    """ACCORD bot-test: the test bot never touches the real books (branch `data`, state.json, trades.jsonl),
+    sends no ntfy alert, has no cron, stops by itself after `days` (default 7) and keeps the R1 guard."""
+    import re
+    txt = _wf("bot-test.yml")
+    pushes = re.findall(r"HEAD:([\w-]+)", txt)
+    assert pushes and set(pushes) == {"data-test"}, pushes                     # only ever pushes data-test
+    assert not re.search(r"origin/data\b(?!-)|heads origin data\b(?!-)|fetch origin data\b(?!-)", txt)
+    assert not re.search(r"(?<![\w-])state\.json|(?<![\w-])trades\.jsonl", txt)  # only state_test / trades_test
+    assert "--state-file state_test.json --trade-log trades_test.jsonl" in txt
+    assert "--gap-buffer-pct 8 --exit-slippage-pct 1" in txt and "--capital 30" in txt
+    assert "secrets." not in txt and "NTFY_TOPIC" not in txt and "ntfy.sh" not in txt   # no alert, no secret
+    assert "schedule:" not in txt
+    assert 'default: "7"' in txt and "TEST_UNTIL" in txt and "group: bot-test" in txt
+    steps = _workflow_steps(txt)
+    relaunch = _if_line(steps["Relance de la chaîne"])
+    assert "env.LONG_RUN == '1'" in relaunch and "gh workflow run bot-test.yml" in steps["Relance de la chaîne"]
+    assert "env.LONG_RUN != '1'" in _if_line(steps["Arrêt rapide (plantage au démarrage)"])
+    bot = next(v for k, v in steps.items() if k.startswith("Bot TEST"))
+    assert "MIN_RUN_SECONDS=600" in bot and 'echo "LONG_RUN=1" >> "$GITHUB_ENV"' in bot
+
+
+def test_bot_cloud_never_uses_test_options_and_saves_the_trace():
+    txt = _wf("bot-cloud.yml")
+    for word in ("--gap-buffer-pct", "--exit-slippage-pct", "--trade-log", "state_test", "trades_test", "data-test"):
+        assert word not in txt, word
+    loops = [l for l in txt.splitlines() if l.strip().startswith("for f in ")]
+    assert len(loops) == 2 and all("position_trace.jsonl" in l for l in loops), loops   # restore AND save()
 
 
 if __name__ == "__main__":
