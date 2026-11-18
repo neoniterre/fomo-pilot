@@ -197,6 +197,30 @@ def test_no_reading_without_open_position():
     done(fp)
 
 
+def test_trace_file_is_capped():
+    """Reserve ACCORD bot-test: position_trace.jsonl keeps only the last MAX lines (trimmed past MAX + SLACK)."""
+    assert pilot.POSITION_TRACE_MAX_LINES == 20_000
+    fp = make_pilot([[pair("P1", 1.00, 100_000)]])
+    path = os.path.join(fp.tmp, pilot.POSITION_TRACE_FILE)
+    with open(path, "w", encoding="utf-8") as f:                       # a previous run left 55 lines
+        f.writelines(json.dumps({"old": i}) + "\n" for i in range(55))
+    old = (pilot.POSITION_TRACE_MAX_LINES, pilot.POSITION_TRACE_SLACK)
+    pilot.POSITION_TRACE_MAX_LINES, pilot.POSITION_TRACE_SLACK = 50, 10
+    try:
+        sizes = []
+        for i in range(30):
+            fp._trace({"token": "CYB", "i": i})
+            sizes.append(sum(1 for _ in open(path, encoding="utf-8")))
+    finally:
+        pilot.POSITION_TRACE_MAX_LINES, pilot.POSITION_TRACE_SLACK = old
+    assert max(sizes) <= 60                                            # never above MAX + SLACK
+    rows = [json.loads(l) for l in open(path, encoding="utf-8")]
+    assert rows[-1]["i"] == 29 and len(rows) <= 60                     # newest kept, oldest dropped
+    assert not any("old" in r for r in rows[-30:])
+    assert not os.path.exists(path + ".tmp")
+    done(fp)
+
+
 def test_cli_watch_interval_minimum_5s():
     import subprocess
     import sys

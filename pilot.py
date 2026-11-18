@@ -129,7 +129,29 @@ e => {
 
 
 POSITION_TRACE_FILE = "position_trace.jsonl"
+POSITION_TRACE_MAX_LINES = 20_000   # keep only the last N lines (reserve ACCORD bot-test: data branches stay light)
+POSITION_TRACE_SLACK = 2_000        # trim once the file exceeds MAX + SLACK lines (no rewrite on every reading)
 MIN_WATCH_INTERVAL = 5.0          # seconds; DexScreener has its own delay, faster is useless
+
+
+def _count_lines(path: str) -> int:
+    try:
+        with open(path, "rb") as f:
+            return sum(1 for _ in f)
+    except FileNotFoundError:
+        return 0
+
+
+def _keep_last_lines(path: str, n: int) -> int:
+    """Rewrites `path` with its last n lines (atomic replace). Returns the new line count."""
+    from collections import deque
+    with open(path, "rb") as f:
+        last = deque(f, maxlen=n)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.writelines(last)
+    os.replace(tmp, path)
+    return len(last)
 
 
 class FatalAPIError(Exception):
@@ -588,12 +610,19 @@ class FomoPilot:
                 self.__dict__.setdefault("_main_pool", {})[tok] = pair
 
     def _trace(self, row: dict):
-        """One line per position per reading in position_trace.jsonl (next to state.json). Never raises."""
+        """One line per position per reading in position_trace.jsonl (next to state.json). Never raises.
+        Capped: once the file holds more than MAX + SLACK lines it is rewritten with the last MAX lines."""
         try:
             path = os.path.join(os.path.dirname(os.path.abspath(self.args.state_file)) or ".", POSITION_TRACE_FILE)
             row = {"ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **row}
+            counts = self.__dict__.setdefault("_trace_lines", {})
+            if path not in counts:                       # first write of this run: count what is already there
+                counts[path] = _count_lines(path)
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            counts[path] += 1
+            if counts[path] > POSITION_TRACE_MAX_LINES + POSITION_TRACE_SLACK:
+                counts[path] = _keep_last_lines(path, POSITION_TRACE_MAX_LINES)
         except Exception:
             pass
 
