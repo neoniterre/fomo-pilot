@@ -6,6 +6,18 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 18/11/2026 — options de TEST glissade (demande d'Elhadj, désactivées par défaut)
+Commit du code + `CLAUDE.md` juste avant ce rapport. 84 tests verts.
+- `--gap-buffer-pct X` : taille = risque / (stop + X). `--exit-slippage-pct Y` : sorties papier à prix observé x (1 - Y %).
+  **0 par défaut** = rien ne change, `bot-cloud.yml` non modifié (ne pas les y mettre sans accord d'Elhadj).
+- Garde-fou : refus de démarrer si une option est activée avec `state.json` ou `trades.jsonl` -> comptes de test séparés
+  obligatoires (`--state-file state_test.json --trade-log trades_test.jsonl`, exclus de git).
+- **Constat** : avec 20 $ de capital, marge 8 % -> 0,80 $ par trade < minimum 1 $ -> aucune entrée. Test à lancer avec
+  `--capital 30` (1,20 $). Si tu veux un test cloud en parallèle, il faut un workflow à part avec sa propre branche d'état
+  (pas `data`) : à proposer dans `docs/`.
+
+---
+
 ## 18/11/2026 — stop qui glisse (`docs/SPEC_STOP_SLIPPAGE.md`)
 
 **Fait** (commits `41d2b0b`, `b655df9`, `5310b19`) — 9 fichiers de tests verts (80 tests, dont 10 dans le nouveau `test_positions.py`).
