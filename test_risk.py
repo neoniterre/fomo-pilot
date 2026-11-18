@@ -35,6 +35,67 @@ def test_entry_ok_and_fail_closed():
     assert m.check_entry("AAA", dict(GOOD, btc_change_1h_pct=-5))   # BTC block
 
 
+def test_gap_buffer_and_exit_slippage_off_by_default():
+    r = Rules()
+    assert r.gap_buffer_pct == 0.0 and r.exit_slippage_pct == 0.0           # historical behaviour unchanged
+    assert rm(20).size_position(GOOD)[0] == 1.33
+    m = rm(1000)
+    m.open_position("A", 1.0, 50, 12)
+    assert abs(m.apply_exit("A", 1.0, 0.8, "stop-loss (-20.0%)") - (-10.0)) < 1e-9   # filled at observed price
+
+
+def test_gap_buffer_keeps_a_cyberleek_gap_within_the_planned_risk():
+    """CYBERLEEK 18/11: stop -12 % filled at -20.1 %. Risk 0.8 % of 1000 $ = 8 $."""
+    plain = rm(1000)
+    size, _, _ = plain.size_position(GOOD)                                   # 8 / 0.12 = 66.67
+    loss_plain = size * 0.201
+    buf = rm(1000)
+    buf.r.gap_buffer_pct = 8.0
+    size_b, stop, notes = buf.size_position(GOOD)
+    assert stop == 12 and size_b == 40.0 and "gap buffer 8.0%" in notes[0]   # 8 / 0.20
+    loss_buf = size_b * 0.201
+    assert loss_plain > 13 and abs(loss_buf - 8.04) < 0.01                   # 1.7 x the risk -> ~1.0 x
+    # 20 $ account: 0.16 / 0.20 = 0.80 $ < 1 $ minimum -> NO trade at all (why a test needs more capital)
+    small = rm(20)
+    small.r.gap_buffer_pct = 8.0
+    size_s, _, notes_s = small.size_position(GOOD)
+    assert size_s == 0.0 and any("below minimum" in n for n in notes_s)
+    ok = rm(30)
+    ok.r.gap_buffer_pct = 8.0
+    assert ok.size_position(GOOD)[0] == 1.2                                  # 0.24 / 0.20
+
+
+def test_exit_slippage_is_pessimistic_and_logged():
+    import json, os, tempfile
+    path = os.path.join(tempfile.mkdtemp(prefix="fomo-test-"), "trades_test.jsonl")
+    m = RiskManager(Rules(), 1000, state_path=None, trade_log=path)
+    m.r.exit_slippage_pct = 1.0
+    m.open_position("A", 1.0, 40, 12)
+    pnl = m.apply_exit("A", 1.0, 0.80, "stop-loss (-20.0%)")
+    assert abs(pnl - 40 * (0.792 - 1.0)) < 1e-9                              # filled at 0.80 x 0.99
+    sell = [json.loads(l) for l in open(path, encoding="utf-8")][-1]
+    assert sell["theoretical_price"] == 0.80 and abs(sell["fill_price"] - 0.792) < 1e-12
+    assert sell["slippage_pct"] == -1.0
+    # live fills are never touched by the paper option
+    m.open_position("B", 1.0, 40, 12, mode="live")
+    pnl_live = m.apply_exit("B", 1.0, 0.80, "stop-loss (-20.0%)", mode="live")
+    assert abs(pnl_live - 40 * (0.80 - 1.0)) < 1e-9
+
+
+def test_test_options_refuse_the_real_books():
+    import subprocess, sys
+    for extra in (["--gap-buffer-pct", "8"],
+                  ["--exit-slippage-pct", "1", "--state-file", "state_test.json"],          # trades.jsonl still real
+                  ["--gap-buffer-pct", "8", "--trade-log", "trades_test.jsonl"]):           # state.json still real
+        p = subprocess.run([sys.executable, "pilot.py", "--auto", "--cloud", *extra], capture_output=True,
+                           timeout=60, env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8", "NTFY_TOPIC": ""})
+        assert p.returncode == 1 and "séparés" in p.stdout.decode("utf-8", "replace"), extra
+    p = subprocess.run([sys.executable, "pilot.py", "--auto", "--cloud", "--gap-buffer-pct", "-3",
+                        "--state-file", "s_t.json", "--trade-log", "t_t.jsonl"], capture_output=True, timeout=60,
+                       env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8", "NTFY_TOPIC": ""})
+    assert p.returncode == 1 and ">= 0" in p.stdout.decode("utf-8", "replace")
+
+
 def test_sizing():
     m = rm(1000)
     size, stop, _ = m.size_position(GOOD)

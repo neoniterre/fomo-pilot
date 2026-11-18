@@ -283,7 +283,14 @@ class FomoPilot:
         rules.min_change_1h = getattr(args, "min_1h", rules.min_change_1h)
         rules.min_change_30m = getattr(args, "min_30m", rules.min_change_30m)
         rules.use_30m = bool(getattr(args, "auto", False))   # auto mode builds the 30m change itself
-        self.risk = RiskManager(rules, capital=args.capital, state_path=args.state_file)
+        rules.gap_buffer_pct = float(getattr(args, "gap_buffer_pct", 0.0) or 0.0)
+        rules.exit_slippage_pct = float(getattr(args, "exit_slippage_pct", 0.0) or 0.0)
+        self.risk = RiskManager(rules, capital=args.capital, state_path=args.state_file,
+                                trade_log=getattr(args, "trade_log", "trades.jsonl"))
+        if rules.gap_buffer_pct or rules.exit_slippage_pct:
+            logger.info("TEST : marge de glissade %.1f %% (taille), slippage de sortie papier %.1f %% | état %s, trades %s",
+                        rules.gap_buffer_pct, rules.exit_slippage_pct, args.state_file,
+                        getattr(args, "trade_log", "trades.jsonl"))
 
     # ---------- screen ----------
     async def take_snapshot(self) -> dict:
@@ -939,6 +946,11 @@ def parse_args():
     ap.add_argument("--max-cycles", type=int, default=0, help="0 = unlimited")
     ap.add_argument("--state-file", default="state.json")
     ap.add_argument("--reset-state", action="store_true", help="delete state.json (new capital / positions)")
+    ap.add_argument("--trade-log", default="trades.jsonl", help="journal des trades (fichier séparé pour un test)")
+    ap.add_argument("--gap-buffer-pct", type=float, default=0.0,
+                    help="TEST : taille = risque / (stop + marge) pour couvrir un trou de prix (0 = désactivé)")
+    ap.add_argument("--exit-slippage-pct", type=float, default=0.0,
+                    help="TEST : sorties papier remplies X %% sous le prix observé (0 = désactivé)")
     return ap.parse_args()
 
 
@@ -952,6 +964,15 @@ if __name__ == "__main__":
             v = asyncio.run(list_xai_vision_models())
             print("\nxAI models with image input:", v or "(see log above)")
         sys.exit(0)
+    if (args.gap_buffer_pct or args.exit_slippage_pct) and (
+            os.path.basename(args.state_file) == "state.json" or os.path.basename(args.trade_log) == "trades.jsonl"):
+        print("Options de TEST (--gap-buffer-pct / --exit-slippage-pct) : donne un état et un journal séparés, "
+              "pour ne pas mélanger avec les vrais comptes papier. Ex. : --state-file state_test.json "
+              "--trade-log trades_test.jsonl")
+        sys.exit(1)
+    if args.gap_buffer_pct < 0 or args.exit_slippage_pct < 0 or args.exit_slippage_pct >= 50:
+        print("--gap-buffer-pct et --exit-slippage-pct doivent être >= 0 (et le slippage < 50 %).")
+        sys.exit(1)
     if args.watch_interval < MIN_WATCH_INTERVAL:
         print(f"--watch-interval {args.watch_interval} trop court : {MIN_WATCH_INTERVAL:.0f} s minimum (DexScreener).")
         args.watch_interval = MIN_WATCH_INTERVAL

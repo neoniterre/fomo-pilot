@@ -34,6 +34,10 @@ class Rules:
     stop_min: float = 12.0
     stop_max: float = 15.0
     min_trade_usd: float = 1.0
+    # TEST options (0 = off = exactly the historical behaviour). SPEC_STOP_SLIPPAGE: a stop can be filled far below
+    # its level (CYBERLEEK -12 % -> -20.1 %), DexScreener only refreshes ~every 30 s.
+    gap_buffer_pct: float = 0.0       # sizing: risk / (stop + buffer) instead of risk / stop
+    exit_slippage_pct: float = 0.0    # paper exits filled X % below the observed price (pessimistic)
     # 3. Exit
     tp1_pct: float = 40.0
     tp1_sell: float = 0.40   # fraction of the INITIAL position
@@ -261,8 +265,10 @@ class RiskManager:
         r = self.r
         stop = min(max(stop_pct or r.stop_min, r.stop_min), r.stop_max)
         risk_usd = self.capital * r.risk_per_trade_pct / 100
-        size = risk_usd / (stop / 100)
-        notes = [f"risk ${risk_usd:.2f} / stop {stop}% = ${size:.2f}"]
+        buffer = max(float(r.gap_buffer_pct or 0.0), 0.0)
+        size = risk_usd / ((stop + buffer) / 100)
+        notes = [f"risk ${risk_usd:.2f} / stop {stop}% = ${size:.2f}" if not buffer else
+                 f"risk ${risk_usd:.2f} / (stop {stop}% + gap buffer {buffer}%) = ${size:.2f}"]
 
         room = self.capital * r.max_exposure_pct / 100 - self.exposure
         if size > room:
@@ -328,6 +334,9 @@ class RiskManager:
         if p is None:
             return 0.0
         self._roll_day()
+        slip_opt = max(float(self.r.exit_slippage_pct or 0.0), 0.0)
+        if fill_price is None and mode == "paper" and slip_opt and price:
+            fill_price = price * (1 - slip_opt / 100)          # pessimistic paper fill (test option)
         fill = fill_price or price
         frac = min(frac, p.remaining_frac)
         realized = frac * p.initial_usd * (fill / p.entry_price - 1)
