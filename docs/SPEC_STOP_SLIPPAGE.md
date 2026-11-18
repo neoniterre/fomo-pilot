@@ -15,7 +15,7 @@ Deux explications possibles, à départager avec des traces :
    Autre piste : relevés manqués (`WARNING ... price unavailable this cycle, exits not evaluated`).
 
 ## PRIORITÉ (demande d'Elhadj 18/11 : 30 s est trop long)
-Faire le point 4 EN PREMIER : boucle dédiée aux positions ouvertes toutes les ~10 s (option `--watch-interval`, défaut 10), indépendante du scan (60 s). Ne pas descendre sous 5 s (DexScreener a un délai propre). Test sans réseau : la boucle position tourne à sa cadence même pendant un scan.
+Faire le point 4 EN PREMIER : boucle dédiée aux positions ouvertes toutes les 5 s (option `--watch-interval`, défaut 5), indépendante du scan (60 s). Minimum 5 s (DexScreener a un délai propre ; en cas d erreur 429, ralentir automatiquement puis revenir à 5 s). Test sans réseau : la boucle position tourne à sa cadence même pendant un scan.
 
 ## À faire (ordre)
 1. **Tracer** : pendant qu'une position est ouverte, écrire une ligne par cycle dans `position_trace.jsonl` : `ts`, `token`, `price`, `change_vs_entry_pct`,
