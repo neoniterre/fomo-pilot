@@ -36,12 +36,13 @@ branche `data` (`history.json` du commit d'état de 04:55:56 UTC, token `solana:
 **-11,8 % de 04:45:17 à 04:47:45 UTC**, puis **-20,1 % au relevé suivant (04:48:22, 37 s plus tard)** et il est resté
 entre -18 % et -20 % ensuite. Le pool principal (Raydium) fait 99 % de la liquidité : la moyenne ne pouvait pas s'en écarter.
 
-**À savoir avant d'espérer mieux avec 5 s** : dans ces relevés, le prix DexScreener va **par paires identiques** à 37 s
-d'écart, ce qui suggère que DexScreener ne rafraîchit qu'environ toutes les 60-75 s. Si c'est confirmé (la trace le
-montrera : `price_main` qui ne change qu'une fois par minute), relever toutes les 5 s ne réduira PAS ce genre de trou.
+**Cadence DexScreener mesurée** (18/11, pool principal de CYBERLEEK relevé toutes les 5 s pendant 2 min, 25/25 OK) :
+le prix change à **28 s / 28 s / 63 s** d'écart -> mise à jour **~toutes les 30 s** (63 s = prix inchangé). Donc la boucle
+5 s voit chaque nouveau prix en ≤ 5 s (avant : jusqu'à 36 s de retard, ce qui a pu coûter un relevé sur CYBERLEEK), mais un
+trou entre deux mises à jour DexScreener (~30 s) reste possible : -11,8 % -> -20,1 % peut se reproduire.
 Pistes, à valider par Elhadj (rien d'activé) : une source de prix plus rapide pour les positions ouvertes ; tailler la
-position sur un trou plausible (ex. stop 12 % + 10 % de glissade) plutôt que sur le stop seul ; le slippage simulé
-pessimiste (spec point 5). Je n'ai pas pu mesurer la cadence en direct : réseau coupé sur le PC d'Elhadj pendant le test.
+position sur un trou plausible (ex. stop 12 % + ~8 % de glissade observée) plutôt que sur le stop seul ; le slippage simulé
+pessimiste (spec point 5).
 
 ---
 

@@ -60,8 +60,9 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
   `priceChange.m5/h1/h6/h24`, `volume.*`, `liquidity.usd`, `marketCap`, `pairCreatedAt` (ms). **Pas de variation 30 min.**
 - **Stop qui glisse (CYBERLEEK, 18/11/2026)** : stop -12 % sorti à -20,1 %. Relevés de la branche `data` : -11,8 % de 04:45:17
   à 04:47:45 UTC puis -20,1 % au relevé suivant (37 s) et le prix est resté vers -19 % : **vrai trou de prix**, pas un artefact
-  multi-pools (pool principal = 99 % de la liquidité). Le prix DexScreener semble ne changer qu'environ toutes les ~60-75 s
-  (paires de valeurs identiques à 37 s d'écart) : relever toutes les 5 s n'empêche pas ces trous ; à mesurer avec `position_trace.jsonl`.
+  multi-pools (pool principal = 99 % de la liquidité). **DexScreener met à jour le prix environ toutes les 30 s** (mesuré le
+  18/11 : changements à 28 s / 28 s / 63 s d'écart en relevant toutes les 5 s) : la boucle 5 s voit chaque nouveau prix en
+  ≤ 5 s (avant : jusqu'à 36 s de retard), mais un trou entre deux mises à jour DexScreener (~30 s) reste possible.
 - Les symboles ne sont pas uniques (faux « GTA6 » sur BSC avec +507 % et sans liquidité) -> toujours associer par prix et liquidité.
 - RugCheck (`api.rugcheck.xyz`) : injoignable depuis le PC d'Elhadj le 17/11/2026 (certificat TLS non reconnu, ne PAS
   désactiver la vérification) -> en local, toutes les entrées Solana `--cloud` sont refusées. Joignable depuis GitHub Actions.
