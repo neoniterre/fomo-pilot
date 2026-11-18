@@ -92,32 +92,43 @@ class Dex:
         self.min_interval = min_interval
         self._last = 0.0
         self._client = None
+        self._lock = None
         self.errors = 0
+        self.rate_limited = 0        # number of HTTP 429 seen (the position loop slows down on it)
 
     async def _get(self, path: str, params: dict | None = None):
         import httpx
-        wait = self._last + self.min_interval - time.time()
-        if wait > 0:
-            await asyncio.sleep(wait)
-        self._last = time.time()
+        # the scan and the position loop share this client: serialize the pacing, not the requests
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            wait = self._last + self.min_interval - time.time()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last = time.time()
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=15)
         r = await self._client.get(self.BASE + path, params=params)
         r.raise_for_status()
         return r.json()
 
+    def _failed(self, e: Exception):
+        self.errors += 1
+        if getattr(getattr(e, "response", None), "status_code", None) == 429:
+            self.rate_limited += 1
+
     async def search(self, query: str) -> list[dict]:
         try:
             return (await self._get("/latest/dex/search", {"q": query})).get("pairs") or []
-        except Exception:
-            self.errors += 1
+        except Exception as e:
+            self._failed(e)
             return []
 
     async def token_pairs(self, address: str, chain: str | None = None) -> list[dict]:
         try:
             pairs = (await self._get(f"/latest/dex/tokens/{address}")).get("pairs") or []
-        except Exception:
-            self.errors += 1
+        except Exception as e:
+            self._failed(e)
             return []
         if chain:
             pairs = [p for p in pairs if p.get("chainId") == chain]

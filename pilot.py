@@ -19,6 +19,7 @@ import argparse
 import asyncio
 import base64
 import json
+from datetime import datetime, timezone
 import logging
 import os
 import re
@@ -125,6 +126,10 @@ e => {
   return parts.join(' ').replace(/\\s+/g, ' ').trim().slice(0, 2000);
 }
 """
+
+
+POSITION_TRACE_FILE = "position_trace.jsonl"
+MIN_WATCH_INTERVAL = 5.0          # seconds; DexScreener has its own delay, faster is useless
 
 
 class FatalAPIError(Exception):
@@ -536,11 +541,67 @@ class FomoPilot:
                     ", ".join(c["symbol"] for c in cands) or "aucun")
         return cands
 
+    # ---------- open positions: dedicated loop, exit price, trace ----------
+    @staticmethod
+    def main_pool(g: dict):
+        """(price, pair address) of the most liquid pool of a token group: where a real sell would happen."""
+        best = g.get("best") or {}
+        try:
+            price = float(best.get("priceUsd"))
+        except (TypeError, ValueError):
+            price = None
+        return (price if price and price > 0 else None), best.get("pairAddress")
+
+    def _exit_price(self, tok: str, g: dict, avg_price):
+        """Price used for exits (SPEC_STOP_SLIPPAGE §3). The liquidity-weighted average over ALL pools can jump when
+        a small / stale pool appears or disappears while the real price does not move, so exits use the MAIN pool.
+        If the main pool itself changed since the last reading (pool removed = typical rug), take the LOWER of the new
+        main price and the average: never later than before on a real crash. Returns (price, main_price, changed)."""
+        main, pair = self.main_pool(g)
+        mains = self.__dict__.setdefault("_main_pool", {})
+        prev = mains.get(tok)
+        changed = bool(prev and pair and prev != pair)
+        if pair:
+            mains[tok] = pair
+        if main is None:
+            return avg_price, None, changed
+        if changed:
+            logger.warning("WARNING %s: main pool changed (%s -> %s), exit price = min(main, average)", tok, prev, pair)
+            return min(x for x in (main, avg_price) if x), main, True
+        return main, main, False
+
+    def _entry_on_main_pool(self, tok: str, g: dict, metrics: dict):
+        """Entry price on the same basis as exits (main pool), else entry-vs-exit compares two different prices.
+        The multi-pool average is kept as price_avg (logs / history)."""
+        main, pair = self.main_pool(g)
+        if main:
+            metrics["price_avg"] = metrics.get("price")
+            metrics["price"] = main
+            if pair:
+                self.__dict__.setdefault("_main_pool", {})[tok] = pair
+
+    def _trace(self, row: dict):
+        """One line per position per reading in position_trace.jsonl (next to state.json). Never raises."""
+        try:
+            path = os.path.join(os.path.dirname(os.path.abspath(self.args.state_file)) or ".", POSITION_TRACE_FILE)
+            row = {"ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"), **row}
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    async def _apply(self, decision: dict):
+        """risk.process + handle_plan, serialized: the position loop and the scan / verification run concurrently."""
+        if self.__dict__.get("_risk_lock") is None:
+            self._risk_lock = asyncio.Lock()
+        async with self._risk_lock:
+            await self.handle_plan(self.risk.process(decision))
+
     async def watch_positions(self):
         """Exits are computed from DexScreener prices (code), never from the model."""
         if not self.risk.positions:
             return
-        ops = []
+        ops, traces = [], []
         for tok, pos in list(self.risk.positions.items()):
             if ":" not in (pos.ref or ""):
                 logger.warning("WARNING %s: no on-chain reference, exits not evaluated", tok)
@@ -549,12 +610,44 @@ class FomoPilot:
             groups = [g for g in group_pairs(await self.dex.token_pairs(addr, chain))]
             if not groups:
                 logger.warning("WARNING %s: price unavailable this cycle, exits not evaluated", tok)
+                traces.append({"token": tok, "ref": pos.ref, "missed": True, "price": None, "price_main": None,
+                               "price_avg": None, "change_vs_entry_pct": None, "n_pools": 0, "liq_total": None,
+                               "main_pool": None, "main_pool_changed": None, "stop_pct": pos.stop_pct})
                 continue
             g = max(groups, key=lambda x: x["liq"])
             m = metrics_from_group(g, None)
-            ops.append({"token": tok, "price": m["price"],
+            price, main, changed = self._exit_price(tok, g, m["price"])
+            ops.append({"token": tok, "price": price,
                         "volume_drop_1h_pct": self.voltrack.update(tok, m["volume_h1"])})
-        await self.handle_plan(self.risk.process({"intent": "none", "open_positions": ops}))
+            chg = round((price / pos.entry_price - 1) * 100, 3) if price and pos.entry_price else None
+            traces.append({"token": tok, "ref": pos.ref, "missed": False, "price": price, "price_main": main,
+                           "price_avg": m["price"], "change_vs_entry_pct": chg, "n_pools": len(g["pairs"]),
+                           "liq_total": round(g["liq"], 2), "main_pool": (g.get("best") or {}).get("pairAddress"),
+                           "main_pool_changed": changed, "stop_pct": pos.stop_pct})
+        before = set(self.risk.positions)
+        await self._apply({"intent": "none", "open_positions": ops})
+        for t in traces:
+            t["closed"] = t["token"] in before and t["token"] not in self.risk.positions
+            self._trace(t)
+
+    async def position_watcher(self):
+        """Dedicated loop for open positions (--watch-interval, 5 s by default), independent from the scan.
+        On DexScreener HTTP 429: slow down (x2, max 60 s), then come back to the normal interval."""
+        base = max(float(self.args.watch_interval), 0.01)
+        interval = base
+        while self.running:
+            try:
+                if self.risk.positions:
+                    rl0 = self.dex.rate_limited
+                    await self.watch_positions()
+                    if self.dex.rate_limited > rl0:
+                        interval = min(interval * 2, 60.0)
+                        logger.warning("WARNING DexScreener 429: positions read every %.0f s for now", interval)
+                    else:
+                        interval = base
+            except Exception as e:
+                logger.error("Position watch error: %s", e)
+            await asyncio.sleep(interval)
 
     async def verify_target(self, snap: dict):
         """The model only navigates and reads holders + red flags. All numbers come from code."""
@@ -587,6 +680,7 @@ class FomoPilot:
                 g = max(groups, key=lambda x: x["liq"])
                 metrics = metrics_from_group(g, await self.btc.get())
                 metrics["change_30m_pct"] = self.hist.change_pct(f"{tgt['chain']}:{tgt['address']}", metrics["price"])
+                self._entry_on_main_pool(tgt["symbol"], g, metrics)
                 metrics.update(top5_holders_pct=d.get("top5_holders_pct"),
                                top10_holders_pct=d.get("top10_holders_pct"), red_flags=flags)
                 logger.info("VERIF: %s page lue : top10=%s top5=%s alertes=%s", tgt["symbol"],
@@ -625,7 +719,8 @@ class FomoPilot:
             return
         g = max(groups, key=lambda x: x["liq"])          # fresh numbers right before the decision
         metrics = metrics_from_group(g, await self.btc.get())
-        metrics["change_30m_pct"] = self.hist.change_pct(key, metrics["price"])
+        metrics["change_30m_pct"] = self.hist.change_pct(key, metrics["price"])   # history is in average prices
+        self._entry_on_main_pool(tgt["symbol"], g, metrics)
         flags = sec.get("red_flags")
         metrics.update(top5_holders_pct=sec.get("top5_holders_pct"), top10_holders_pct=sec.get("top10_holders_pct"),
                        red_flags=flags if isinstance(flags, list) else ["donnée sécurité indisponible"])
@@ -650,7 +745,8 @@ class FomoPilot:
 
     async def auto_cycle(self):
         await self.alerts()
-        await self.watch_positions()
+        if not self.__dict__.get("_watcher_on"):          # the dedicated position loop is not running
+            await self.watch_positions()
         if self.risk.halted:
             logger.warning("Daily circuit breaker ACTIVE: no new entries until tomorrow.")
             return
@@ -685,7 +781,7 @@ class FomoPilot:
         deadline = time.time() + self.args.reconnect_min * 60
         while time.time() < deadline and self.running:
             try:
-                if self.args.auto:
+                if self.args.auto and not self.__dict__.get("_watcher_on"):   # else the position loop keeps going
                     await self.watch_positions()
                 browser = await p.chromium.connect_over_cdp("http://localhost:9222")
                 ctx = browser.contexts[0]
@@ -737,6 +833,12 @@ class FomoPilot:
                         "LIVE" if self.live else "PAPER", self.provider.name, self.provider.model,
                         self.risk.status())
 
+            watcher = None
+            if self.args.auto:
+                self._watcher_on = True
+                watcher = asyncio.create_task(self.position_watcher())
+                logger.info("Positions ouvertes relues toutes les %.0f s (boucle dédiée, séparée du scan).",
+                            self.args.watch_interval)
             cycles = 0
             while self.running:
                 if self.args.max_cycles and cycles >= self.args.max_cycles:
@@ -790,6 +892,13 @@ class FomoPilot:
                             break
                         continue
                     await asyncio.sleep(5)
+            if watcher is not None:
+                self.running = False
+                watcher.cancel()
+                try:
+                    await watcher
+                except (asyncio.CancelledError, Exception):
+                    pass
             logger.info("Pilot stopped. %s", self.risk.status())
             if self.risk.positions:
                 await self.notifier.send("Positions ouvertes", "Le bot est arrêté mais ces positions restent ouvertes : "
@@ -807,6 +916,8 @@ def parse_args():
     ap.add_argument("--list-models", action="store_true", help="xai only: list models with image input")
     ap.add_argument("--ntfy-topic", default=None, help="canal ntfy (sinon NTFY_TOPIC du .env)")
     ap.add_argument("--report-hour", type=int, default=21, help="heure locale du rapport quotidien")
+    ap.add_argument("--watch-interval", type=float, default=MIN_WATCH_INTERVAL,
+                    help=f"secondes entre deux relevés des positions ouvertes (boucle dédiée, min {MIN_WATCH_INTERVAL:.0f})")
     ap.add_argument("--reconnect-min", type=float, default=30,
                     help="minutes to keep retrying if Chrome is closed before stopping")
     ap.add_argument("--capital", type=float, default=20, help="Capital in $ (used for risk sizing)")
@@ -841,6 +952,9 @@ if __name__ == "__main__":
             v = asyncio.run(list_xai_vision_models())
             print("\nxAI models with image input:", v or "(see log above)")
         sys.exit(0)
+    if args.watch_interval < MIN_WATCH_INTERVAL:
+        print(f"--watch-interval {args.watch_interval} trop court : {MIN_WATCH_INTERVAL:.0f} s minimum (DexScreener).")
+        args.watch_interval = MIN_WATCH_INTERVAL
     if args.reset_state and os.path.exists(args.state_file):
         os.remove(args.state_file)
     if args.cloud:
