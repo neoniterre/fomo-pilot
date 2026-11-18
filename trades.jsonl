@@ -1,1 +1,2 @@
 {"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.33, "theoretical_price": 0.0029078481944692356, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-18T04:30:39.543703+00:00"}
+{"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.0023223231631069137, "fill_price": null, "slippage_pct": 0.0, "pnl_usd": -0.2678, "reason": "stop-loss (-20.1%)", "ts": "2026-11-18T04:48:21.451277+00:00"}
