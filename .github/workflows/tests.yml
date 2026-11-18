@@ -23,6 +23,8 @@ jobs:
           python-version: "3.x"
           cache: pip
       - name: Installer les paquets
+        env:
+          PYYAML_FORCE_LIBYAML: "0"   # PyYAML en Python pur si pas de wheel pour cette version (safe_load suffit)
         run: python -m pip install -r requirements.txt
       - name: test_risk
         run: python test_risk.py

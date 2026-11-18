@@ -5,3 +5,4 @@ openai==3.51.0          # --provider xai (Grok, API compatible OpenAI)
 playwright==1.65.2      # pilote Chrome (mode debug, port 9222)
 python-dotenv==1.2.4    # lit .env
 httpx==0.28.1           # DexScreener, Binance, Kraken, CoinGecko
+pyyaml==6.0.3           # tests : validite des workflows (yaml.safe_load). Python 3.15 Windows : PYYAML_FORCE_LIBYAML=0

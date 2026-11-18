@@ -396,6 +396,30 @@ def _wf(name):
     return open(os.path.join(here, ".github", "workflows", name), encoding="utf-8").read()
 
 
+def test_all_workflows_are_valid_yaml():
+    """Every .github/workflows/*.yml must load with yaml.safe_load. 18/11/2026: bot-test.yml had `run: echo "... : ..."`
+    (a ': ' inside a plain scalar) -> invalid YAML, rejected by GitHub, while all the text-based tests were green."""
+    try:
+        import yaml
+    except ImportError:
+        raise AssertionError("PyYAML manquant : pip install -r requirements.txt "
+                             "(Python 3.15 Windows : PYYAML_FORCE_LIBYAML=0)")
+    wf_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".github", "workflows")
+    names = sorted(n for n in os.listdir(wf_dir) if n.endswith((".yml", ".yaml")))
+    assert {"bot-cloud.yml", "bot-test.yml", "tests.yml"} <= set(names), names
+    for name in names:
+        with open(os.path.join(wf_dir, name), encoding="utf-8") as f:
+            try:
+                d = yaml.safe_load(f)
+            except yaml.YAMLError as e:
+                raise AssertionError(f"{name} : YAML invalide : {e}")
+        assert isinstance(d, dict) and isinstance(d.get("jobs"), dict) and d["jobs"], name
+        assert (True in d) or ("on" in d), name            # YAML 1.1 reads the `on:` key as True
+        for job, spec in d["jobs"].items():
+            steps = spec.get("steps") or []
+            assert steps and all(isinstance(s, dict) and ("run" in s or "uses" in s) for s in steps), (name, job)
+
+
 def test_bot_test_is_isolated_from_the_real_bot():
     """ACCORD bot-test: the test bot never touches the real books (branch `data`, state.json, trades.jsonl),
     sends no ntfy alert, has no cron, stops by itself after `days` (default 7) and keeps the R1 guard."""

@@ -92,7 +92,8 @@ jobs:
 
       - name: Arrêt rapide (plantage au démarrage)
         if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false' && env.LONG_RUN != '1' && env.SHORT_REQUESTED != '1'
-        run: echo "ARRÊT RAPIDE du bot TEST (< 10 min ou pas démarré) : pas de relance. Relancer à la main après correction."
+        run: |
+          echo "ARRÊT RAPIDE du bot TEST (< 10 min ou pas démarré) : pas de relance. Relancer à la main après correction."
 
       - name: Relance de la chaîne
         if: always() && env.STOPPED != '1' && github.event.inputs.chain != 'false' && env.LONG_RUN == '1'
