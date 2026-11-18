@@ -21,7 +21,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 ## Architecture
 | Fichier | Rôle |
 |---|---|
-| `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. Garde-fous clics : `ui_gate` (texte du sélecteur) puis `element_gate` (texte RÉEL de l'élément, du bouton parent et du submit du formulaire, juste avant le clic). Ne jamais les affaiblir. |
+| `risk.py` | Desk rules v4 : filtres d'entrée, taille de position (risque/stop ; option de TEST `gap_buffer_pct` = risque/(stop+marge), et `exit_slippage_pct` = sorties papier X % sous le prix observé, **0 par défaut = comportement historique**), sorties (TP1/TP2/stop/trailing/volume), coupe-circuit -3 %/jour, max trades. État dans `state.json`. Garde-fous clics : `ui_gate` (texte du sélecteur) puis `element_gate` (texte RÉEL de l'élément, du bouton parent et du submit du formulaire, juste avant le clic). Ne jamais les affaiblir. |
 | `scanner.py` | Listes publiques fomo (`parse_fomo_list`), client DexScreener, `resolve_token` (association symbole -> token par prix ±10 % et dominance de liquidité), métriques, `PriceHistory` (variation 30 min calculée par nos relevés), `VolumeTracker`, `save_history` / `load_history` (`history.json`). |
 | `reader.py` | Lecture du texte de page par code, variation BTC 1h (Binance -> Kraken -> CoinGecko). |
 | `pilot.py` | Boucle principale. Modes : texte (gratuit), `anthropic`/`xai` (modèle lit l'écran), `--auto` (scan -> filtres code -> vérif page -> entrée simulée). Si Chrome est fermé : surveille les positions via DexScreener et retente la connexion toutes les 30 s pendant `--reconnect-min` minutes (défaut 30), puis s'arrête. `--auto --cloud` : sans Chrome debug ni modèle ni clé Anthropic, listes fomo publiques en Chromium headless, holders/alertes via `security.py` ; refuse `--live`/`--auto-entry`, exige `--auto`, ignore `--navigate` (aucun clic), pas de reconnexion (Chromium arrêté = bot arrêté + alerte). **Positions ouvertes : boucle dédiée** (`position_watcher`) toutes les `--watch-interval` s (défaut et minimum 5), séparée du scan ; sur HTTP 429 DexScreener : x2 jusqu'à 60 s puis retour à 5 s. **Prix de sortie = pool principal** (le plus liquide), pas la moyenne multi-pools ; si le pool principal change : min(nouveau principal, moyenne). Prix d'entrée aussi sur le pool principal (même base). Trace : `position_trace.jsonl` (à côté de `state.json`, une ligne par position et par relevé : prix utilisé, prix du pool principal, moyenne, variation vs entrée, nb de pools, liquidité, relevé manqué, fermé), exclu de git. |
@@ -49,6 +49,8 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 .\venv\Scripts\python.exe test_positions.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50   # sans Chrome (python -m playwright install chromium)
+# TEST glissade (comptes séparés obligatoires, sinon refus ; 30 $ mini : avec 20 $ la marge 8 % rend chaque trade < 1 $) :
+.\venv\Scripts\python.exe pilot.py --auto --cloud --capital 30 --min-30m 20 --min-1h 50 --gap-buffer-pct 8 --exit-slippage-pct 1 --state-file state_test.json --trade-log trades_test.jsonl
 .\venv\Scripts\python.exe summary.py --watch
 .\venv\Scripts\python.exe summary.py --cloud            # bot cloud (ou double-clic resume_cloud.bat)
 ```
@@ -79,6 +81,8 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 - `git pull` avant de travailler, petits commits, message clair, `git push` sur `main`.
 - Ne jamais forcer un push. En cas de conflit : s'arrêter et expliquer.
 - Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary, positions), puis commiter.
+- Les options de TEST (`--gap-buffer-pct`, `--exit-slippage-pct`) ne vont JAMAIS dans `bot-cloud.yml` sans accord d'Elhadj ;
+  `pilot.py` refuse de les utiliser avec `state.json` / `trades.jsonl` (les vrais comptes papier).
   Avant de remplacer un fichier, `git diff` : un fichier écrit à partir d'une ancienne version efface les corrections. Garder `summary.py` aligné avec les lignes de log.
 
 ## État / à faire (priorité)
