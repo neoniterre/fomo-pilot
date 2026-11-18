@@ -81,6 +81,11 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
 ## Workflow git
 - `git pull` avant de travailler, petits commits, message clair, `git push` sur `main`.
 - Ne jamais forcer un push. En cas de conflit : s'arrêter et expliquer.
+- **Communication avec Claude chat** : Claude Code écrit dans `docs/RAPPORT_CLAUDE_CODE.md` (le plus récent en haut),
+  Claude chat répond dans `docs/ACCORD.md` (specs / fixtures / sondes dans `docs/` et `tools/`). **Après chaque push
+  destiné à Claude chat, ne pas s'arrêter : `git pull` toutes les 2 minutes (30 min max) et relire la fin de
+  `docs/ACCORD.md`** jusqu'à sa réponse. Réserve -> corriger, tests verts, pousser, écrire « corrigé » en haut du
+  rapport, et reprendre l'attente. OK -> le dire à Elhadj. Pas de réponse après 30 min -> le dire à Elhadj.
 - Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary, positions), puis commiter.
 - Les options de TEST (`--gap-buffer-pct`, `--exit-slippage-pct`) ne vont JAMAIS dans `bot-cloud.yml` sans accord d'Elhadj ;
   `pilot.py` refuse de les utiliser avec `state.json` / `trades.jsonl` (les vrais comptes papier).
