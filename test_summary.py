@@ -87,6 +87,58 @@ def test_show_cloud_prints():
     assert "RÉSUMÉ DU BOT CLOUD" in buf.getvalue() and "Capital : 20.42 $" in buf.getvalue()
 
 
+# REAL trades of the cloud bot (branche data, 18/11/2026): stop -12 % filled at -20.1 %
+CYBERLEEK = "\n".join([
+    '{"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.33, "theoretical_price": 0.0029078481944692356, '
+    '"fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-18T04:30:39.543703+00:00"}',
+    '{"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.0023223231631069137, '
+    '"fill_price": null, "slippage_pct": 0.0, "pnl_usd": -0.2678, "reason": "stop-loss (-20.1%)", '
+    '"ts": "2026-11-18T04:48:21.451277+00:00"}'])
+
+
+def test_stop_ratio_on_cyberleek():
+    from summary import stop_lines
+    out = stop_lines(CYBERLEEK)
+    assert out[0].startswith("Stops : 1 | perte réelle / risque prévu : moyenne 1.68 x, pire 1.68 x")
+    assert "perte 0.27 $ / risque prévu 0.16 $ = 1.68 x" in out[1]           # 0.2678 / (1.33 x 12 %)
+    assert "sortie 0.002322323 vs stop 0.002558906 (-9.2 %)" in out[1]
+    assert stop_lines(TRADES) == ["Stops : aucun pour l'instant."]           # a TP is not a stop
+    assert stop_lines("{broken\n") == ["Stops : aucun pour l'instant."]
+
+
+def test_stop_ratio_with_test_options_slippage():
+    """Test bot: exit filled 1 % below the observed price (fill_price written) -> ratio uses the real fill."""
+    from summary import stop_lines
+    buy = {"mode": "paper", "side": "buy", "token": "X", "usd": 1.2, "theoretical_price": 1.0, "fill_price": None,
+           "stop_pct": 12.0, "ts": "2026-11-19T10:00:00+00:00"}
+    sell = {"mode": "paper", "side": "sell", "token": "X", "frac": 1.0, "theoretical_price": 0.87, "fill_price": 0.8613,
+            "pnl_usd": round(1.2 * (0.8613 - 1), 4), "reason": "stop-loss (-13.0%)", "ts": "2026-11-19T10:30:00+00:00"}
+    out = stop_lines(json.dumps(buy) + "\n" + json.dumps(sell))
+    assert "= 1.16 x" in out[1] and "sortie 0.8613 vs stop 0.88 (-2.1 %)" in out[1]
+
+
+def test_cloud_summary_test_branch():
+    test_state = dict(STATE, capital=30.0, day_start_capital=30.0, positions={})
+    f = fake({}, raise_for=())
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        files = {"state_test.json": json.dumps(test_state), "trades_test.jsonl": CYBERLEEK}
+        base = "https://raw.githubusercontent.com/neoniterre/fomo-pilot/data-test/"
+        assert url.startswith(base), url                                      # never the real `data` branch
+        name = url[len(base):]
+        return (200, files[name]) if name in files else (404, "")
+    out = text(cloud_block(fetch, branch="data-test"))
+    assert "Capital : 30.00 $" in out and "1.68 x" in out and "PAPER VENTE  CYBERLEEK" in out
+    assert [u.rsplit("/", 1)[1] for u in calls] == ["STOP", "state_test.json", "trades_test.jsonl"]
+    assert "Branche inconnue" in text(cloud_block(f, branch="main"))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        show_cloud(types.SimpleNamespace(last=20, branch="data-test"), fetch=fetch)
+    assert "RÉSUMÉ DU BOT DE TEST (branche data-test" in buf.getvalue()
+
+
 def test_local_summary_unchanged():
     assert state_lines(STATE)[0].startswith("Capital : 20.42 $")
     assert trades_lines("") == ["Aucun trade pour l'instant."]

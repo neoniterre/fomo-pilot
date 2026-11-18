@@ -6,6 +6,7 @@ summary.py : version simplifiée de pilot.log, en français.
   python summary.py --last 50    -> plus d'historique
   python summary.py --watch      -> se rafraîchit toutes les 10 s (Ctrl+C pour quitter)
   python summary.py --cloud      -> bot cloud : état + derniers trades lus sur GitHub (branche data, sans clé)
+  python summary.py --cloud --branch data-test  -> bot de test glissade (+ perte réelle / risque prévu par stop)
 """
 import argparse
 import json
@@ -206,8 +207,57 @@ def trades_lines(text, last=10):
     return out
 
 
+def stop_lines(text):
+    """For every stop-loss: real loss / planned risk (target ~1.0 x; CYBERLEEK 18/11 = 1.7 x) and exit price vs stop
+    price. Planned risk = buy usd x fraction sold x stop %. Never raises."""
+    rows = []
+    for raw in (text or "").splitlines():
+        try:
+            t = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(t, dict):
+            rows.append(t)
+    buys, out, ratios = {}, [], []
+    for t in rows:
+        try:
+            if t.get("side") == "buy":
+                buys[t.get("token")] = t
+                continue
+            if not str(t.get("reason", "")).startswith("stop-loss"):
+                continue
+            b = buys.get(t.get("token"))
+            if not b:
+                out.append(f"  {t.get('token')} : stop sans achat correspondant dans le journal")
+                continue
+            stop = float(b["stop_pct"])
+            entry = float(b.get("fill_price") or b["theoretical_price"])
+            planned = float(b["usd"]) * float(t.get("frac", 1.0)) * stop / 100
+            loss = -float(t.get("pnl_usd", 0))
+            ratio = loss / planned if planned else float("nan")
+            stop_px = entry * (1 - stop / 100)
+            exit_px = float(t.get("fill_price") or t["theoretical_price"])
+            ratios.append(ratio)
+            out.append(f"  {str(t.get('ts', '?'))[:16].replace('T', ' ')}  {t.get('token')} : perte {loss:.2f} $ / "
+                       f"risque prévu {planned:.2f} $ = {ratio:.2f} x | sortie {exit_px:.7g} vs stop {stop_px:.7g} "
+                       f"({(exit_px / stop_px - 1) * 100:+.1f} %)")
+        except Exception:
+            out.append("  (stop illisible)")
+    if not out:
+        return ["Stops : aucun pour l'instant."]
+    head = f"Stops : {len(ratios)}"
+    if ratios:
+        head += f" | perte réelle / risque prévu : moyenne {sum(ratios) / len(ratios):.2f} x, pire {max(ratios):.2f} x (cible ~1,0 x)"
+    return [head] + out
+
+
 # --------------------------------------------------------------------------- cloud (GitHub, branche data)
-CLOUD_BASE = "https://raw.githubusercontent.com/neoniterre/fomo-pilot/data/"
+CLOUD_REPO = "https://raw.githubusercontent.com/neoniterre/fomo-pilot/"
+CLOUD_BASE = CLOUD_REPO + "data/"
+CLOUD_BRANCHES = {                       # branch -> (state file, trades file)
+    "data": ("state.json", "trades.jsonl"),                    # real cloud bot (bot-cloud.yml)
+    "data-test": ("state_test.json", "trades_test.jsonl"),     # slippage test bot (bot-test.yml)
+}
 
 
 def fetch_url(url, timeout=15):
@@ -222,39 +272,46 @@ def fetch_url(url, timeout=15):
         return e.code, ""
 
 
-def cloud_block(fetch=fetch_url, last=10):
-    """State + last trades of the cloud bot, read from the public `data` branch (no key). Never raises."""
+def cloud_block(fetch=fetch_url, last=10, branch="data"):
+    """State + last trades (+ stops) of a cloud bot, read from a public branch (no key). Never raises."""
+    if branch not in CLOUD_BRANCHES:
+        return [f"Branche inconnue : {branch!r}. Choix : " + ", ".join(CLOUD_BRANCHES)]
+    state_name, trades_name = CLOUD_BRANCHES[branch]
+    base = CLOUD_REPO + branch + "/"
+
     def get(name):
         try:
-            return fetch(CLOUD_BASE + name)
+            return fetch(base + name)
         except Exception as e:
             return None, f"{type(e).__name__}"
 
     out = []
     status, text = get("STOP")
     if status == 200:
-        out.append("!! Arrêt d'urgence demandé (fichier STOP sur la branche data) : le bot cloud ne tourne pas.")
+        out.append(f"!! Arrêt d'urgence demandé (fichier STOP sur la branche {branch}) : le bot ne tourne pas.")
 
-    status, text = get("state.json")
+    status, text = get(state_name)
     if status is None:
         return out + [f"Impossible de joindre GitHub ({text}). Vérifie ta connexion internet et réessaie."]
     if status == 404:
-        out.append("Pas encore d'état dans le cloud (le bot n'a encore rien sauvegardé sur la branche data).")
+        out.append(f"Pas encore d'état dans le cloud (le bot n'a encore rien sauvegardé sur la branche {branch}).")
     elif status != 200:
-        out.append(f"GitHub a répondu {status} pour state.json : réessaie dans quelques minutes.")
+        out.append(f"GitHub a répondu {status} pour {state_name} : réessaie dans quelques minutes.")
     else:
         try:
             s = json.loads(text)
-            out += state_lines(s) if isinstance(s, dict) else ["(state.json du cloud illisible)"]
+            out += state_lines(s) if isinstance(s, dict) else [f"({state_name} du cloud illisible)"]
         except Exception:
-            out.append("(state.json du cloud illisible)")
+            out.append(f"({state_name} du cloud illisible)")
 
     out.append("-" * 64)
-    status, text = get("trades.jsonl")
+    status, text = get(trades_name)
     if status == 200:
         out += trades_lines(text, last)
+        out.append("-" * 64)
+        out += stop_lines(text)
     elif status == 404:
-        out.append("Aucun trade pour l'instant (pas encore de trades.jsonl).")
+        out.append(f"Aucun trade pour l'instant (pas encore de {trades_name}).")
     elif status is None:
         out.append(f"Trades : GitHub injoignable ({text}).")
     else:
@@ -263,8 +320,10 @@ def cloud_block(fetch=fetch_url, last=10):
 
 
 def show_cloud(args, fetch=fetch_url):
-    out = ["=" * 64, "  RÉSUMÉ DU BOT CLOUD (branche data, peut avoir ~5 min de retard)", "=" * 64]
-    out += cloud_block(fetch, last=min(args.last, 30))
+    branch = getattr(args, "branch", "data") or "data"
+    title = "BOT CLOUD" if branch == "data" else "BOT DE TEST"
+    out = ["=" * 64, f"  RÉSUMÉ DU {title} (branche {branch}, peut avoir ~5 min de retard)", "=" * 64]
+    out += cloud_block(fetch, last=min(args.last, 30), branch=branch)
     out.append("=" * 64)
     print("\n".join(out))
 
@@ -294,6 +353,8 @@ if __name__ == "__main__":
     ap.add_argument("--last", type=int, default=20)
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--cloud", action="store_true", help="résumé du bot cloud (branche data sur GitHub, sans clé)")
+    ap.add_argument("--branch", default="data", choices=sorted(CLOUD_BRANCHES),
+                    help="avec --cloud : data (vrai bot) ou data-test (bot de test glissade)")
     a = ap.parse_args()
     run = show_cloud if a.cloud else show
     if a.watch:
