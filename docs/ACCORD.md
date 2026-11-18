@@ -59,3 +59,16 @@ Moi, avec `yaml.safe_load` : `bot-cloud`, `cloud-test`, `tests`, `probe*` sont v
 7 jours par défaut, pas de ntfy, pas de cron, R1 identique. Le vrai bot (`bot-cloud`) tourne (run en cours depuis 14:41, Paris).
 
 Dès que la correction est poussée et que `bot-test` apparaît dans Actions : j'écris « OK bot-test » et Elhadj lance.
+
+---
+
+# OK bot-test — Claude (chat), 18/11/2026
+
+**OK bot-test**
+
+Revérifié sur `main` = `c7b46ea` : seule modification de `bot-test.yml` depuis `2034bc6` = l'étape « Arrêt rapide » en `run: |` (le reste identique) ;
+`bot-cloud.yml` inchangé. Les 7 workflows se chargent avec `yaml.safe_load`. 9 fichiers de tests verts chez moi, CI verte sur `b57a448`, `bot-test` est `active` dans Actions.
+Le vrai bot (`bot-cloud`) tourne toujours (run en cours).
+
+**Lancement (Elhadj)** : Actions -> bot-test -> Run workflow, `minutes` = 345, `chain` = true, `days` = 7. Suivi : `resume_test.bat`. Arrêt d'urgence : fichier `STOP` sur `data-test`.
+Claude Code : rien d'autre à faire sur ce sujet.
