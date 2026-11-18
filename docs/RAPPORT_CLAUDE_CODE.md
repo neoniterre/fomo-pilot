@@ -6,6 +6,45 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 18/11/2026 — stop qui glisse (`docs/SPEC_STOP_SLIPPAGE.md`)
+
+**Fait** (commits `41d2b0b`, `b655df9`, `5310b19`) — 9 fichiers de tests verts (80 tests, dont 10 dans le nouveau `test_positions.py`).
+
+**Nom final du fichier de trace : `position_trace.jsonl`**, dans le même dossier que `state.json` (donc la racine du
+checkout dans `bot-cloud.yml`, à côté de `state.json` / `history.json` / `trades.jsonl`). Exclu de git sur `main`.
+À ajouter à la boucle `for f in state.json history.json trades.jsonl` de `bot-cloud.yml` (sauvegarde ET reprise) : je ne
+touche pas au workflow sans ta proposition (règle anti-conflit). Une ligne par position ouverte et par relevé :
+`ts, token, ref, missed, price` (prix utilisé pour la sortie), `price_main, price_avg, change_vs_entry_pct, n_pools,
+liq_total, main_pool, main_pool_changed, stop_pct, closed`. ~17 000 lignes / jour par position ouverte (≈ 4 Mo) :
+penser à le tronquer ou le faire tourner si des positions restent ouvertes longtemps.
+
+1. **Priorité, boucle positions** : `position_watcher` toutes les `--watch-interval` s (défaut et minimum 5), séparée du
+   scan. 429 DexScreener -> 10, 20... 60 s puis retour à 5 s. `risk.process` sérialisé (verrou) entre la boucle et la
+   vérification d'entrée. **Le run `bot-cloud` en cours garde l'ancienne version ; le suivant prendra celle-ci** (aucun
+   changement de ligne de commande nécessaire : 5 s par défaut).
+2. **Trace** : voir ci-dessus. Ne bloque jamais le bot (testé avec un chemin impossible).
+3. **Tests sans réseau** : chute 0 / -10 / -25 % -> sortie au 1er relevé <= -12 % (donc à -25 %, `stop-loss (-25.0%)`,
+   pnl -0,3325 $) : le trou entre deux relevés EST la glissade. Petit pool qui apparaît : la moyenne baisse de 15 %, le pool
+   principal ne bouge pas -> **l'ancien code sortait à tort**, le nouveau ne sort pas. Petit pool qui disparaît : idem.
+4. **Correction appliquée** : prix de sortie = **pool principal** ; si le pool principal change entre deux relevés
+   (pool retiré = rug typique) : **min(nouveau principal, moyenne)**, pour ne jamais sortir plus tard qu'avant. Prix
+   d'entrée aussi sur le pool principal (même base que la sortie). J'ai préféré cette option à « 2 relevés sous le
+   stop » : attendre un relevé de plus sur un vrai krach coûterait plus cher.
+
+**Enquête CYBERLEEK : c'est l'hypothèse 1 (vrai trou), pas la moyenne.** Lu en lecture seule dans l'historique de la
+branche `data` (`history.json` du commit d'état de 04:55:56 UTC, token `solana:ApZuxdpz…`) : le prix est resté à
+**-11,8 % de 04:45:17 à 04:47:45 UTC**, puis **-20,1 % au relevé suivant (04:48:22, 37 s plus tard)** et il est resté
+entre -18 % et -20 % ensuite. Le pool principal (Raydium) fait 99 % de la liquidité : la moyenne ne pouvait pas s'en écarter.
+
+**À savoir avant d'espérer mieux avec 5 s** : dans ces relevés, le prix DexScreener va **par paires identiques** à 37 s
+d'écart, ce qui suggère que DexScreener ne rafraîchit qu'environ toutes les 60-75 s. Si c'est confirmé (la trace le
+montrera : `price_main` qui ne change qu'une fois par minute), relever toutes les 5 s ne réduira PAS ce genre de trou.
+Pistes, à valider par Elhadj (rien d'activé) : une source de prix plus rapide pour les positions ouvertes ; tailler la
+position sur un trou plausible (ex. stop 12 % + 10 % de glissade) plutôt que sur le stop seul ; le slippage simulé
+pessimiste (spec point 5). Je n'ai pas pu mesurer la cadence en direct : réseau coupé sur le PC d'Elhadj pendant le test.
+
+---
+
 ## 17/11/2026 — R1 corrigée (commit `adb096e`)
 Relance seulement si le bot a tourné >= 10 min (`LONG_RUN`) ; sinon, étape « Arrêt rapide » : pas de relance, log + ntfy priorité 5
 « Bot cloud plante au demarrage », le cron reprend. Couvre aussi un bot jamais démarré (installation ratée) ; run court
