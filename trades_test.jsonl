@@ -4,3 +4,5 @@
 {"mode": "paper", "side": "sell", "token": "VINE", "frac": 1.0, "theoretical_price": 0.0106, "fill_price": 0.010494, "slippage_pct": -1.0, "pnl_usd": 0.1179, "reason": "volume drop 62% in 1h", "ts": "2026-11-19T19:02:20.383494+00:00"}
 {"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.2, "theoretical_price": 0.002031, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-19T19:16:46.856316+00:00"}
 {"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.001762, "fill_price": 0.0017443799999999998, "slippage_pct": -1.0, "pnl_usd": -0.1693, "reason": "stop-loss (-13.2%)", "ts": "2026-11-19T19:20:46.046620+00:00"}
+{"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.19, "theoretical_price": 0.002311, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-19T20:13:30.792738+00:00"}
+{"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.002311, "fill_price": 0.00228789, "slippage_pct": -1.0, "pnl_usd": -0.0119, "reason": "volume drop 74% in 1h", "ts": "2026-11-19T20:13:33.503422+00:00"}
