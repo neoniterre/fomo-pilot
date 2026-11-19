@@ -1,9 +1,9 @@
 {
   "capital": 29.603639091291768,
-  "day": "2026-11-19",
-  "day_start_capital": 29.820695238095237,
-  "daily_pnl": -0.21705614680347007,
-  "trades_today": 4,
+  "day": "2026-11-20",
+  "day_start_capital": 29.603639091291768,
+  "daily_pnl": 0.0,
+  "trades_today": 0,
   "halted": false,
   "positions": {}
 }
