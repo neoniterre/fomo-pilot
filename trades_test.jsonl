@@ -7,3 +7,4 @@
 {"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.19, "theoretical_price": 0.002311, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-19T20:13:30.792738+00:00"}
 {"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.002311, "fill_price": 0.00228789, "slippage_pct": -1.0, "pnl_usd": -0.0119, "reason": "volume drop 74% in 1h", "ts": "2026-11-19T20:13:33.503422+00:00"}
 {"mode": "paper", "side": "buy", "token": "CYBERLEEK", "usd": 1.19, "theoretical_price": 0.002783, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-19T20:28:46.076622+00:00"}
+{"mode": "paper", "side": "sell", "token": "CYBERLEEK", "frac": 1.0, "theoretical_price": 0.002448, "fill_price": 0.00242352, "slippage_pct": -1.0, "pnl_usd": -0.1537, "reason": "stop-loss (-12.0%)", "ts": "2026-11-19T20:34:46.701197+00:00"}
