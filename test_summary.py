@@ -139,6 +139,41 @@ def test_cloud_summary_test_branch():
     assert "RÉSUMÉ DU BOT DE TEST (branche data-test" in buf.getvalue()
 
 
+def test_cloud_summary_reentry_test_branch():
+    """data-test2 (SPEC_REENTREE): results + re-entry refusals by rule and what the price did 60 min later."""
+    from summary import refusals_lines, results_lines
+    refusals = "\n".join(json.dumps(r) for r in [
+        {"type": "refusal", "id": "1", "token": "CYB", "rule": "cooldown", "price": 1.0},
+        {"type": "followup", "id": "1", "after_min": 30, "price_30m": 0.9, "change_30m_pct": -10.0},
+        {"type": "followup", "id": "1", "after_min": 60, "price_60m": 0.8, "change_60m_pct": -20.0},
+        {"type": "refusal", "id": "2", "token": "FLOAT", "rule": "cooldown", "price": 1.0},
+        {"type": "followup", "id": "2", "after_min": 60, "price_60m": 1.3, "change_60m_pct": 30.0},
+        {"type": "refusal", "id": "3", "token": "CYB", "rule": "max_stops", "price": 1.0},
+        {"type": "refusal", "id": "4", "token": "X", "rule": "volume_drop", "price": 1.0},
+        {"type": "followup", "id": "4", "after_min": 60, "price_60m": None, "change_60m_pct": None, "missed": True},
+    ]) + "\n{broken\n"
+    lines = refusals_lines(refusals)
+    out = text(lines)
+    assert lines[0] == "Refus de réentrée : 4 (prix 60 min après le refus)"
+    assert "cooldown après perte : 2 refus | 1 auraient monté, 1 baissé, 0 en attente / manqués, moyenne +5.0 %" in out
+    assert "max stops / jour : 1 refus | 0 auraient monté, 0 baissé, 1 en attente / manqués" in out
+    assert "volume en chute : 1 refus | 0 auraient monté, 0 baissé, 1 en attente / manqués" in out
+    assert refusals_lines("") == ["Refus de réentrée : aucun pour l'instant."]
+    assert results_lines(CYBERLEEK + "\n" + TRADES) == ["Bilan : 2 entrée(s), 1 stop(s), PnL réalisé -0.05 $"]
+
+    def fetch(url):
+        base = "https://raw.githubusercontent.com/neoniterre/fomo-pilot/data-test2/"
+        assert url.startswith(base), url
+        files = {"state_test2.json": json.dumps(dict(STATE, positions={})), "trades_test2.jsonl": CYBERLEEK,
+                 "refusals_test2.jsonl": refusals}
+        name = url[len(base):]
+        return (200, files[name]) if name in files else (404, "")
+    out = text(cloud_block(fetch, branch="data-test2"))
+    assert "Bilan : 1 entrée(s), 1 stop(s)" in out and "Refus de réentrée : 4" in out and "1.68 x" in out
+    out = text(cloud_block(fake({"state.json": json.dumps(STATE)})))          # real bot: no refusal section
+    assert "Refus" not in out and "Bilan" not in out
+
+
 def test_local_summary_unchanged():
     assert state_lines(STATE)[0].startswith("Capital : 20.42 $")
     assert trades_lines("") == ["Aucun trade pour l'instant."]

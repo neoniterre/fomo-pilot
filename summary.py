@@ -7,6 +7,7 @@ summary.py : version simplifiée de pilot.log, en français.
   python summary.py --watch      -> se rafraîchit toutes les 10 s (Ctrl+C pour quitter)
   python summary.py --cloud      -> bot cloud : état + derniers trades lus sur GitHub (branche data, sans clé)
   python summary.py --cloud --branch data-test  -> bot de test glissade (+ perte réelle / risque prévu par stop)
+  python summary.py --cloud --branch data-test2 -> bot de test réentrée (+ refus par règle et prix 60 min après)
 """
 import argparse
 import json
@@ -257,7 +258,64 @@ CLOUD_BASE = CLOUD_REPO + "data/"
 CLOUD_BRANCHES = {                       # branch -> (state file, trades file)
     "data": ("state.json", "trades.jsonl"),                    # real cloud bot (bot-cloud.yml)
     "data-test": ("state_test.json", "trades_test.jsonl"),     # slippage test bot (bot-test.yml)
+    "data-test2": ("state_test2.json", "trades_test2.jsonl"),  # re-entry rules test bot (bot-test2.yml)
 }
+CLOUD_REFUSALS = {"data-test2": "refusals_test2.jsonl"}       # branch -> re-entry refusals log (SPEC_REENTREE)
+RULE_NAMES = {"cooldown": "cooldown après perte", "reclaim": "pas de reprise", "max_stops": "max stops / jour",
+              "volume_drop": "volume en chute"}
+
+
+def _jsonl(text):
+    rows = []
+    for raw in (text or "").splitlines():
+        try:
+            t = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(t, dict):
+            rows.append(t)
+    return rows
+
+
+def results_lines(text):
+    """Entries, stops, total pnl of a trades log (for comparing a test bot with the real one). Never raises."""
+    rows = _jsonl(text)
+    buys = sum(1 for t in rows if t.get("side") == "buy")
+    stops = sum(1 for t in rows if t.get("side") == "sell" and str(t.get("reason", "")).startswith("stop-loss"))
+    pnl = 0.0
+    for t in rows:
+        try:
+            pnl += float(t.get("pnl_usd") or 0) if t.get("side") == "sell" else 0.0
+        except (TypeError, ValueError):
+            pass
+    return [f"Bilan : {buys} entrée(s), {stops} stop(s), PnL réalisé {pnl:+.2f} $"]
+
+
+def refusals_lines(text):
+    """Re-entry refusals by rule and, for each rule, what the price did 60 min later (up / down / pending).
+    This is THE question: does a rule save money or miss rebounds? Never raises."""
+    rows = _jsonl(text)
+    refusals = {r["id"]: r for r in rows if r.get("type") == "refusal" and r.get("id")}
+    after60 = {r["id"]: r.get("change_60m_pct") for r in rows
+               if r.get("type") == "followup" and r.get("after_min") == 60 and r.get("id") in refusals}
+    if not refusals:
+        return ["Refus de réentrée : aucun pour l'instant."]
+    by_rule = {}
+    for rid, r in refusals.items():
+        s = by_rule.setdefault(r.get("rule") or "?", {"n": 0, "up": 0, "down": 0, "flat": 0, "pending": 0, "chg": []})
+        s["n"] += 1
+        c = after60.get(rid, "pending") if rid in after60 else "pending"
+        if c == "pending" or c is None:
+            s["pending"] += 1
+            continue
+        s["chg"].append(c)
+        s["up" if c > 0 else "down" if c < 0 else "flat"] += 1
+    out = [f"Refus de réentrée : {len(refusals)} (prix 60 min après le refus)"]
+    for rule, s in sorted(by_rule.items()):
+        avg = f", moyenne {sum(s['chg']) / len(s['chg']):+.1f} %" if s["chg"] else ""
+        out.append(f"  {RULE_NAMES.get(rule, rule)} : {s['n']} refus | {s['up']} auraient monté, {s['down']} baissé"
+                   f"{', ' + str(s['flat']) + ' stables' if s['flat'] else ''}, {s['pending']} en attente / manqués{avg}")
+    return out
 
 
 def fetch_url(url, timeout=15):
@@ -307,6 +365,8 @@ def cloud_block(fetch=fetch_url, last=10, branch="data"):
     out.append("-" * 64)
     status, text = get(trades_name)
     if status == 200:
+        if branch in CLOUD_REFUSALS:
+            out += results_lines(text)
         out += trades_lines(text, last)
         out.append("-" * 64)
         out += stop_lines(text)
@@ -316,6 +376,18 @@ def cloud_block(fetch=fetch_url, last=10, branch="data"):
         out.append(f"Trades : GitHub injoignable ({text}).")
     else:
         out.append(f"Trades : GitHub a répondu {status}.")
+
+    if branch in CLOUD_REFUSALS:
+        out.append("-" * 64)
+        status, text = get(CLOUD_REFUSALS[branch])
+        if status == 200:
+            out += refusals_lines(text)
+        elif status == 404:
+            out.append("Refus de réentrée : aucun pour l'instant.")
+        elif status is None:
+            out.append(f"Refus : GitHub injoignable ({text}).")
+        else:
+            out.append(f"Refus : GitHub a répondu {status}.")
     return out
 
 
@@ -354,7 +426,7 @@ if __name__ == "__main__":
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--cloud", action="store_true", help="résumé du bot cloud (branche data sur GitHub, sans clé)")
     ap.add_argument("--branch", default="data", choices=sorted(CLOUD_BRANCHES),
-                    help="avec --cloud : data (vrai bot) ou data-test (bot de test glissade)")
+                    help="avec --cloud : data (vrai bot), data-test (test glissade) ou data-test2 (test réentrée)")
     a = ap.parse_args()
     run = show_cloud if a.cloud else show
     if a.watch:
