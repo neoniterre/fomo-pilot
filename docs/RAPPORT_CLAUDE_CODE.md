@@ -6,6 +6,53 @@ Avant d'écrire du code : `git pull` et repartir de `main`, jamais d'une ancienn
 
 ---
 
+## 20/11/2026 — réentrée (`docs/SPEC_REENTREE.md`) : **prêt**
+
+**Prêt** : `main` = `4a91d23`, **CI verte** sur ce commit (aucun run en échec), 10 fichiers de tests verts en local
+(109 tests, dont 17 dans le nouveau `test_reentry.py`). **`bot-test2` est `active` dans Actions.**
+`bot-cloud.yml` et `bot-test.yml` **non modifiés** (vérifié par diff et par test).
+
+Commits : `673df48` (règles + suivi des refus), `608cfa2` (`summary.py --branch data-test2` + `resume_test2.bat`),
+`ff190ff` (`bot-test2.yml`), `4a91d23` (`.bat`, CI, `.gitignore`, `CLAUDE.md`).
+
+- **4 règles** dans `risk.py`, désactivées par défaut (0 / off = historique, testé : 3 stops de suite puis rachat
+  toujours accepté, `state.json` sans nouvelle clé) : `--reentry-cooldown-min`, `--reentry-reclaim`,
+  `--max-stops-per-token-day`, `--no-entry-volume-drop-pct`. Refus de démarrer si activées avec
+  `state.json` / `trades.jsonl`.
+- **État** : `token_hist` (prix d'entrée précédent, dernière sortie à perte, stops du jour) écrit **seulement si une
+  option est active** ; un état sans `token_hist` se charge comme avant (testé, et survit à un redémarrage).
+- **Refus** : ligne `pilot.log` « REENTRY REFUSED » + ligne `refusals_test2.jsonl` (`type: refusal`, `id, ts, token,
+  rule, reason, price, ref`). Puis lignes `type: followup` à **+30 et +60 min** (`price_30m` / `price_60m`,
+  `change_30m_pct` / `change_60m_pct`), par la boucle positions existante, sans bloquer. Suivis en cours repris au
+  redémarrage du run (lus dans `refusals_test2.jsonl`).
+- **`bot-test2.yml`** = copie de `bot-test.yml` ; diff limité à : nom, `data-test2`, groupe `bot-test2`, `FILES`
+  (+ `refusals_test2.jsonl`), `--capital 20`, plus de marge / slippage, les 4 options + `--refusal-log`, nom des étapes,
+  relance `bot-test2.yml`.
+- **`summary.py --cloud --branch data-test2`** : bilan (entrées, stops, PnL réalisé), trades, stops (ratio), puis
+  **refus par règle : combien auraient monté / baissé 60 min après**, moyenne, en attente / manqués.
+
+**Précisions / choix prudents, à valider :**
+1. **Un refus n'est mesuré que si la réentrée est la SEULE raison** du refus. Sinon le token était refusé de toute
+   façon (momentum, holders…) et compter « aurait-il remonté ? » fausserait la mesure.
+2. **Règles appliquées à la décision finale seulement**, pas au pré-filtre du scan (sinon le même refus serait
+   journalisé chaque minute). Avec le cooldown de vérification existant (15 min par token), au plus ~4 refus / h / token.
+3. **Volume à l'entrée** : `VolumeTracker.peek`, sans ajouter d'échantillon (le suivi de sortie du vrai bot ne change
+   pas). **Limite** : ce suivi n'a des relevés que pour les tokens déjà détenus dans l'heure ; pour un token « neuf », la
+   donnée est absente -> **pas de blocage** (règle 4 ET condition volume de la règle 2, comme tu l'as demandé pour la 4).
+   Concrètement, la règle 4 agit surtout sur les rachats (cas CYBERLEEK 20:13), pas sur les premières entrées.
+4. **Sortie « volume » / pnl 0 = sortie à perte** (cooldown), comme la spec ; TP puis trailing gagnant = pas de cooldown.
+5. Relevé +30 / +60 fait **plus de 10 min en retard** (bot redémarré, DexScreener indisponible) -> écrit `missed`,
+   jamais un prix pris à un autre moment.
+
+**Remarque sur le vrai bot (non modifié)** : la sortie « volume » de CYBERLEEK à 20:13, dans la minute de l'achat,
+vient du suivi de volume gardé d'une position précédente sur le même token (échantillons de plus de 55 min).
+C'est cohérent avec la règle (« -60 % sur 1 h ») mais ça explique les sorties immédiates après un rachat.
+
+**Lancement** (après ton OK) : Actions -> **bot-test2** -> Run workflow, `minutes` = 345, `chain` = true, `days` = 7.
+Suivi : `resume_test2.bat`. Arrêt d'urgence : fichier `STOP` sur `data-test2`.
+
+---
+
 ## 18/11/2026 — bot-test : **corrigé** (YAML ligne 95)
 
 **Corrigé** (commit `b57a448`) — merci pour la vérification, c'était bien mon erreur (`: ` dans un scalaire simple ;
