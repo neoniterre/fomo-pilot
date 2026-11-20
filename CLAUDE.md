@@ -11,7 +11,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 - **Le dépôt GitHub est PUBLIC** (neoniterre/fomo-pilot) : aucune clé, aucun canal ntfy, aucun secret dans git, ni dans
   les logs (les logs GitHub Actions sont publics aussi). Les secrets vont dans les *secrets GitHub* (`NTFY_TOPIC`) ou le `.env`.
   `httpx`/`httpcore` restent en WARNING dans `pilot.py` (sinon l'URL ntfy, donc le canal, est loggée).
-- Ne jamais écrire sur les branches `data` et `data-test` (état des bots cloud) ni modifier les secrets GitHub.
+- Ne jamais écrire sur les branches `data`, `data-test` et `data-test2` (état des bots cloud) ni modifier les secrets GitHub.
 - **Fail-closed** : un chiffre illisible ou manquant = `None` = entrée refusée par `risk.py`. Ne jamais estimer ni deviner.
 - **Les desk rules vivent dans `risk.py`** (code), pas dans un prompt. Ne les assouplir que si Elhadj le demande
   explicitement (option CLI `--min-30m`, `--min-1h` pour les seuils de momentum).
@@ -30,6 +30,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 | `gardien.py` / `lancer_gardien.bat` / `installer_demarrage.bat` | Gardien : relance Chrome en mode debug (port 9222, profil `C:\chrome-debug`) et `pilot.py --auto` s'ils tombent (pause croissante, 6 relances/h max puis alerte ntfy et arrêt). Refuse `--live`. `installer_demarrage.bat` le lance à l'ouverture de session Windows (tâche `FomoGardien`). Le PC doit rester allumé : pour s'en passer, voir mode cloud. |
 | `summary.py` / `resume.bat` | Résumé lisible en français de `pilot.log` + `state.json`. |
 | `.github/workflows/bot-test.yml` / `resume_test.bat` | **Bot de TEST glissade**, séparé du vrai : branche **`data-test`**, `state_test.json` / `trades_test.jsonl`, 30 $, `--gap-buffer-pct 8 --exit-slippage-pct 1`, pas de cron (lancé à la main, `days` = 7 par défaut puis arrêt seul via `TEST_UNTIL`), pas de ntfy, garde R1. Arrêt d'urgence : `STOP` sur `data-test`. Suivi : `summary.py --cloud --branch data-test` (avec, par stop, perte réelle / risque prévu, cible ~1,0 x). Ne jamais écrire sur `data-test` à la main. |
+| `.github/workflows/bot-test2.yml` / `resume_test2.bat` | **Bot de TEST réentrée** (`docs/SPEC_REENTREE.md`), copie de `bot-test.yml` : branche **`data-test2`**, `state_test2.json` / `trades_test2.jsonl` / `refusals_test2.jsonl`, **mêmes réglages que le vrai bot** (20 $, sans marge ni slippage) + `--reentry-cooldown-min 20 --reentry-reclaim --max-stops-per-token-day 2 --no-entry-volume-drop-pct 60`. Options **désactivées par défaut** (`risk.py`, `token_hist` dans l'état seulement si une option est active : `state.json` du vrai bot inchangé). Chaque refus (seulement si la réentrée est la SEULE raison) : ligne `pilot.log` + `refusals_test2.jsonl`, puis prix à +30 / +60 min (boucle positions ; relevé trop tard = manqué). Suivi : `summary.py --cloud --branch data-test2`. Jamais ces options dans `bot-cloud.yml` / `bot-test.yml` (testé). |
 | `summary.py --cloud` / `resume_cloud.bat` | Résumé du bot cloud : lit sans clé `raw.githubusercontent.com/neoniterre/fomo-pilot/data/` (`state.json`, `trades.jsonl`, `STOP`), ~5 min de retard (cache GitHub). Réseau coupe / 404 / JSON cassé = message clair, jamais de plantage. |
 | `.github/workflows/bot-cloud.yml` | **Bot PAPER dans le cloud, sans PC** : `pilot.py --auto --cloud` ~5 h 45 (`timeout 345m`), puis se relance tout seul (+ cron toutes les 6 h en filet). État (`state.json`, `history.json`, `trades.jsonl`) sauvegardé sur la branche **`data`** toutes les 15 min et repris au run suivant. **Arrêt d'urgence : créer un fichier `STOP` à la racine de la branche `data`** (ou désactiver le workflow dans l'onglet Actions). Secret GitHub `NTFY_TOPIC` pour les alertes. Ne doit JAMAIS contenir `--live` / `--auto-entry` (test `test_cloud_never_live_cli_and_workflows`). `cloud-test.yml` : essai court, sans relance. |
 | `lancer_bot.bat` | Lance les tests puis le bot en paper (double-clic). |
@@ -48,6 +49,7 @@ Mots d'ordre : **efficacité, rapidité, prévoyance**.
 .\venv\Scripts\python.exe test_security.py
 .\venv\Scripts\python.exe test_summary.py
 .\venv\Scripts\python.exe test_positions.py
+.\venv\Scripts\python.exe test_reentry.py
 .\venv\Scripts\python.exe pilot.py --auto --navigate --model claude-haiku-5-5 --capital 20 --min-30m 20 --min-1h 50
 .\venv\Scripts\python.exe pilot.py --auto --cloud --capital 20 --min-30m 20 --min-1h 50   # sans Chrome (python -m playwright install chromium)
 # TEST glissade (comptes séparés obligatoires, sinon refus ; 30 $ mini : avec 20 $ la marge 8 % rend chaque trade < 1 $) :
@@ -86,8 +88,8 @@ Clé API dans `.env` : `ANTHROPIC_API_KEY=...` (facturée à part du forfait Pro
   destiné à Claude chat, ne pas s'arrêter : `git pull` toutes les 2 minutes (30 min max) et relire la fin de
   `docs/ACCORD.md`** jusqu'à sa réponse. Réserve -> corriger, tests verts, pousser, écrire « corrigé » en haut du
   rapport, et reprendre l'attente. OK -> le dire à Elhadj. Pas de réponse après 30 min -> le dire à Elhadj.
-- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary, positions), puis commiter.
-- Les options de TEST (`--gap-buffer-pct`, `--exit-slippage-pct`) ne vont JAMAIS dans `bot-cloud.yml` sans accord d'Elhadj ;
+- Après une correction : lancer TOUS les `test_*.py` (risk, reader, scanner, pilot, notify, gardien, security, summary, positions, reentry), puis commiter.
+- Les options de TEST (`--gap-buffer-pct`, `--exit-slippage-pct`, `--reentry-*`, `--max-stops-per-token-day`, `--no-entry-volume-drop-pct`) ne vont JAMAIS dans `bot-cloud.yml` sans accord d'Elhadj ;
   `pilot.py` refuse de les utiliser avec `state.json` / `trades.jsonl` (les vrais comptes papier).
   Avant de remplacer un fichier, `git diff` : un fichier écrit à partir d'une ancienne version efface les corrections. Garder `summary.py` aligné avec les lignes de log.
 
