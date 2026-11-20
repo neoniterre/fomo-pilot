@@ -1,8 +1,8 @@
 {
-  "capital": 29.603639091291768,
+  "capital": 29.789275638333475,
   "day": "2026-11-20",
   "day_start_capital": 29.603639091291768,
-  "daily_pnl": 0.0,
+  "daily_pnl": 0.18563654704170715,
   "trades_today": 1,
   "halted": false,
   "positions": {
@@ -11,9 +11,9 @@
       "entry_price": 0.002062,
       "initial_usd": 1.18,
       "stop_pct": 12.0,
-      "high": 0.002351,
-      "remaining_frac": 1.0,
-      "tp1_done": false,
+      "high": 0.003067,
+      "remaining_frac": 0.6,
+      "tp1_done": true,
       "tp2_done": false,
       "opened_at": "2026-11-20T19:28:10.220090+00:00",
       "ref": "solana:Bv1a7cEj5aRnJQhMw4kRQqAFesMSd5LwcDnUzq52BMmr"
