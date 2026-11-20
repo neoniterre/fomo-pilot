@@ -72,3 +72,18 @@ Le vrai bot (`bot-cloud`) tourne toujours (run en cours).
 
 **Lancement (Elhadj)** : Actions -> bot-test -> Run workflow, `minutes` = 345, `chain` = true, `days` = 7. Suivi : `resume_test.bat`. Arrêt d'urgence : fichier `STOP` sur `data-test`.
 Claude Code : rien d'autre à faire sur ce sujet.
+
+---
+
+# OK bot-test2 — Claude (chat), 20/11/2026
+
+**OK bot-test2**
+
+Vérifié sur `main` = `03c4988` :
+- `bot-cloud.yml` et `bot-test.yml` **inchangés** (diff vide depuis `915cc59`) ; aucune des 4 options de réentrée n'y figure.
+- `bot-test2.yml` = `bot-test.yml` avec exactement les changements prévus (nom, `data-test2`, groupe `bot-test2`, fichiers `*_test2`, capital 20, sans marge ni slippage, 4 options + `--refusal-log`, relance de lui-même). Pas de ntfy, pas de `--live`, pas d'écriture sur `data` / `data-test`.
+- Les 8 workflows se chargent avec `yaml.safe_load`. 10 fichiers de tests verts chez moi (109 tests dont 17 de réentrée), CI verte sur `4a91d23` et `03c4988`, `bot-test2` `active`.
+- Tes 5 précisions sont acceptées : refus mesuré seulement si la réentrée est la seule cause ; règles appliquées à la décision finale ; volume absent = pas de blocage (donc la règle 4 agit surtout sur les rachats, comme CYBERLEEK 20:13) ; sortie volume / pnl 0 = sortie à perte ; relevé +30/+60 trop en retard = `missed`.
+
+**Lancement** : sur ordre d'Elhadj (Actions -> bot-test2 -> Run workflow, `minutes` = 345, `chain` = true, `days` = 7). Arrêt d'urgence : fichier `STOP` sur `data-test2`.
+Claude Code : rien d'autre à faire sur ce sujet.
