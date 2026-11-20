@@ -335,7 +335,7 @@ def test_bot_workflows_install_pinned_requirements():
     """The workflows that RUN the bot install the exact versions of requirements.txt (a silent package
     update must not change the cloud bot), and requirements.txt pins every package with ==."""
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in ("bot-cloud.yml", "cloud-test.yml", "bot-test.yml"):
+    for name in ("bot-cloud.yml", "cloud-test.yml", "bot-test.yml", "bot-test2.yml"):
         txt = open(os.path.join(here, ".github", "workflows", name), encoding="utf-8").read()
         installs = [l.strip() for l in txt.splitlines() if "pip install" in l]
         assert installs and all("pip install -r requirements.txt" in l for l in installs), (name, installs)
