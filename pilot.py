@@ -128,6 +128,41 @@ e => {
 """
 
 
+REFUSAL_LOG_DEFAULT = "refusals.jsonl"
+REFUSAL_FOLLOWUP_MIN = (30, 60)      # price checked this many minutes after a re-entry refusal
+REFUSAL_FOLLOWUP_GRACE_S = 600       # reading still impossible 10 min after due -> written as missed
+
+
+def load_pending_followups(path: str, now: float | None = None) -> list:
+    """Refusals of a previous run whose +30 / +60 min checks are not written yet (the cloud bot restarts every
+    ~5 h 45). Unreadable file / lines -> ignored. Never raises."""
+    now = time.time() if now is None else now
+    refusals, done = {}, {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                try:
+                    r = json.loads(raw)
+                except Exception:
+                    continue
+                if r.get("type") == "refusal" and r.get("price") and ":" in (r.get("ref") or ""):
+                    refusals[r["id"]] = r
+                elif r.get("type") == "followup":
+                    done.setdefault(r.get("id"), set()).add(r.get("after_min"))
+    except Exception:
+        return []
+    out = []
+    for rid, r in refusals.items():
+        try:
+            t0 = datetime.fromisoformat(r["ts"]).timestamp()
+        except Exception:
+            continue
+        todo = [m for m in REFUSAL_FOLLOWUP_MIN if m not in done.get(rid, set())]
+        if todo and now - t0 < max(REFUSAL_FOLLOWUP_MIN) * 60 + REFUSAL_FOLLOWUP_GRACE_S:
+            out.append({"id": rid, "token": r["token"], "ref": r["ref"], "price": r["price"], "t0": t0, "todo": todo})
+    return out
+
+
 POSITION_TRACE_FILE = "position_trace.jsonl"
 POSITION_TRACE_MAX_LINES = 20_000   # keep only the last N lines (reserve ACCORD bot-test: data branches stay light)
 POSITION_TRACE_SLACK = 2_000        # trim once the file exceeds MAX + SLACK lines (no rewrite on every reading)
@@ -307,12 +342,24 @@ class FomoPilot:
         rules.use_30m = bool(getattr(args, "auto", False))   # auto mode builds the 30m change itself
         rules.gap_buffer_pct = float(getattr(args, "gap_buffer_pct", 0.0) or 0.0)
         rules.exit_slippage_pct = float(getattr(args, "exit_slippage_pct", 0.0) or 0.0)
+        rules.reentry_cooldown_min = float(getattr(args, "reentry_cooldown_min", 0.0) or 0.0)
+        rules.reentry_reclaim = bool(getattr(args, "reentry_reclaim", False))
+        rules.max_stops_per_token_day = int(getattr(args, "max_stops_per_token_day", 0) or 0)
+        rules.no_entry_volume_drop_pct = float(getattr(args, "no_entry_volume_drop_pct", 0.0) or 0.0)
         self.risk = RiskManager(rules, capital=args.capital, state_path=args.state_file,
                                 trade_log=getattr(args, "trade_log", "trades.jsonl"))
         if rules.gap_buffer_pct or rules.exit_slippage_pct:
             logger.info("TEST : marge de glissade %.1f %% (taille), slippage de sortie papier %.1f %% | état %s, trades %s",
                         rules.gap_buffer_pct, rules.exit_slippage_pct, args.state_file,
                         getattr(args, "trade_log", "trades.jsonl"))
+        self.refusal_log = os.path.join(os.path.dirname(os.path.abspath(args.state_file)) or ".",
+                                        getattr(args, "refusal_log", REFUSAL_LOG_DEFAULT) or REFUSAL_LOG_DEFAULT)
+        self.refusal_followups = []
+        if self.risk.reentry_on:
+            logger.info("TEST réentrée : cooldown %.0f min, reprise %s, max %d stops/token/jour, pas d'entrée si volume "
+                        "-%.0f %% | refus dans %s", rules.reentry_cooldown_min, "oui" if rules.reentry_reclaim else "non",
+                        rules.max_stops_per_token_day, rules.no_entry_volume_drop_pct, self.refusal_log)
+            self.refusal_followups = load_pending_followups(self.refusal_log)
 
     # ---------- screen ----------
     async def take_snapshot(self) -> dict:
@@ -428,6 +475,8 @@ class FomoPilot:
     async def handle_plan(self, plan: dict):
         for line in plan["log"]:
             logger.info(line)
+        for rf in plan.get("reentry_refused") or []:
+            self._record_refusal(rf)
 
         for ex in plan["exits"]:
             logger.info("EXIT approved: %s", ex)
@@ -560,7 +609,7 @@ class FomoPilot:
             if self.cooldown.get(it["symbol"], 0) > now:
                 stats["déjà vus"] += 1
                 continue
-            if self.risk.check_entry(it["symbol"], m, skip={"holders", "flags"}):
+            if self.risk.check_entry(it["symbol"], m, skip={"holders", "flags", "reentry"}):   # re-entry: final check only
                 stats["filtres desk"] += 1
                 continue
             cands.append({"symbol": it["symbol"], "chain": g["chain"], "address": g["address"], "metrics": m})
@@ -683,7 +732,72 @@ class FomoPilot:
                         interval = base
             except Exception as e:
                 logger.error("Position watch error: %s", e)
+            try:
+                if self.__dict__.get("refusal_followups"):
+                    await self.refusal_followup_step()
+            except Exception as e:
+                logger.error("Refusal follow-up error: %s", e)
             await asyncio.sleep(interval)
+
+    # ---------- re-entry refusals (TEST, SPEC_REENTREE): log + price at +30 / +60 min ----------
+    def _entry_volume_drop(self, tok: str, metrics: dict):
+        """1h volume drop at entry time, WITHOUT recording a sample (the exit tracker stays untouched).
+        Only computed when a re-entry option needs it: with all options off nothing changes."""
+        r = getattr(self.risk, "r", None)
+        if r is not None and (getattr(r, "no_entry_volume_drop_pct", 0) or getattr(r, "reentry_reclaim", False)):
+            metrics["volume_drop_1h_pct"] = self.voltrack.peek(tok, metrics.get("volume_h1"))
+
+    def _append_refusal_log(self, rec: dict):
+        try:
+            with open(self.refusal_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _record_refusal(self, rf: dict):
+        """One pilot.log line + one refusal line; schedules the +30 / +60 min price checks. Never raises."""
+        try:
+            now = time.time()
+            rid = f"{int(now * 1000)}-{rf.get('token')}-{rf.get('rule')}"
+            logger.info("REENTRY REFUSED %s [%s] : %s (prix %s)", rf.get("token"), rf.get("rule"), rf.get("reason"),
+                        rf.get("price"))
+            rec = {"type": "refusal", "id": rid, "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                   "token": rf.get("token"), "rule": rf.get("rule"), "reason": rf.get("reason"),
+                   "price": rf.get("price"), "ref": rf.get("ref", "")}
+            self._append_refusal_log(rec)
+            if rec["price"] and ":" in (rec["ref"] or ""):
+                self.__dict__.setdefault("refusal_followups", []).append(
+                    {"id": rid, "token": rec["token"], "ref": rec["ref"], "price": rec["price"],
+                     "t0": now, "todo": list(REFUSAL_FOLLOWUP_MIN)})
+        except Exception as e:
+            logger.error("Refusal record error: %s", e)
+
+    async def refusal_followup_step(self, now: float | None = None):
+        """For every refusal: main-pool price at +30 and +60 min (one DexScreener call each, from the position loop).
+        A reading still impossible REFUSAL_FOLLOWUP_GRACE_S after its due time is written as missed (price None)."""
+        now = time.time() if now is None else now
+        keep = []
+        for fu in self.refusal_followups:
+            while fu["todo"] and now >= fu["t0"] + fu["todo"][0] * 60:
+                after = fu["todo"][0]
+                late = now > fu["t0"] + after * 60 + REFUSAL_FOLLOWUP_GRACE_S
+                price = None
+                if not late:                                      # too late = written as missed, never a wrong-time price
+                    chain, addr = fu["ref"].split(":", 1)
+                    groups = group_pairs(await self.dex.token_pairs(addr, chain))
+                    price = self.main_pool(max(groups, key=lambda x: x["liq"]))[0] if groups else None
+                    if price is None:
+                        break                                     # retry on the next loop
+                chg = round((price / fu["price"] - 1) * 100, 2) if price and fu["price"] else None
+                self._append_refusal_log({"type": "followup", "id": fu["id"], "token": fu["token"],
+                                          "after_min": after, f"price_{after}m": price, f"change_{after}m_pct": chg,
+                                          "missed": price is None,
+                                          "ts": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+                logger.info("REENTRY FOLLOW-UP %s +%d min : %s (%s %%)", fu["token"], after, price, chg)
+                fu["todo"].pop(0)
+            if fu["todo"]:
+                keep.append(fu)
+        self.refusal_followups = keep
 
     async def verify_target(self, snap: dict):
         """The model only navigates and reads holders + red flags. All numbers come from code."""
@@ -717,6 +831,7 @@ class FomoPilot:
                 metrics = metrics_from_group(g, await self.btc.get())
                 metrics["change_30m_pct"] = self.hist.change_pct(f"{tgt['chain']}:{tgt['address']}", metrics["price"])
                 self._entry_on_main_pool(tgt["symbol"], g, metrics)
+                self._entry_volume_drop(tgt["symbol"], metrics)
                 metrics.update(top5_holders_pct=d.get("top5_holders_pct"),
                                top10_holders_pct=d.get("top10_holders_pct"), red_flags=flags)
                 logger.info("VERIF: %s page lue : top10=%s top5=%s alertes=%s", tgt["symbol"],
@@ -757,6 +872,7 @@ class FomoPilot:
         metrics = metrics_from_group(g, await self.btc.get())
         metrics["change_30m_pct"] = self.hist.change_pct(key, metrics["price"])   # history is in average prices
         self._entry_on_main_pool(tgt["symbol"], g, metrics)
+        self._entry_volume_drop(tgt["symbol"], metrics)
         flags = sec.get("red_flags")
         metrics.update(top5_holders_pct=sec.get("top5_holders_pct"), top10_holders_pct=sec.get("top10_holders_pct"),
                        red_flags=flags if isinstance(flags, list) else ["donnée sécurité indisponible"])
@@ -980,6 +1096,17 @@ def parse_args():
                     help="TEST : taille = risque / (stop + marge) pour couvrir un trou de prix (0 = désactivé)")
     ap.add_argument("--exit-slippage-pct", type=float, default=0.0,
                     help="TEST : sorties papier remplies X %% sous le prix observé (0 = désactivé)")
+    # TEST re-entry rules (SPEC_REENTREE), all off by default
+    ap.add_argument("--reentry-cooldown-min", type=float, default=0.0,
+                    help="TEST : pas de nouvelle entrée sur un token pendant N min après une sortie à perte (0 = désactivé)")
+    ap.add_argument("--reentry-reclaim", action="store_true",
+                    help="TEST : après une sortie à perte, ne racheter que si prix >= entrée précédente et volume 1 h > -30 %%")
+    ap.add_argument("--max-stops-per-token-day", type=int, default=0,
+                    help="TEST : plus d'entrée sur un token après N stops le même jour (0 = désactivé)")
+    ap.add_argument("--no-entry-volume-drop-pct", type=float, default=0.0,
+                    help="TEST : refuser l'entrée si le volume 1 h a déjà chuté de plus de X %% (0 = désactivé)")
+    ap.add_argument("--refusal-log", default=REFUSAL_LOG_DEFAULT,
+                    help="TEST : journal des refus de réentrée (+ prix à +30 / +60 min)")
     return ap.parse_args()
 
 
@@ -993,11 +1120,18 @@ if __name__ == "__main__":
             v = asyncio.run(list_xai_vision_models())
             print("\nxAI models with image input:", v or "(see log above)")
         sys.exit(0)
-    if (args.gap_buffer_pct or args.exit_slippage_pct) and (
+    test_opts = (args.gap_buffer_pct or args.exit_slippage_pct or args.reentry_cooldown_min or args.reentry_reclaim
+                 or args.max_stops_per_token_day or args.no_entry_volume_drop_pct)
+    if test_opts and (
             os.path.basename(args.state_file) == "state.json" or os.path.basename(args.trade_log) == "trades.jsonl"):
-        print("Options de TEST (--gap-buffer-pct / --exit-slippage-pct) : donne un état et un journal séparés, "
+        print("Options de TEST (--gap-buffer-pct / --exit-slippage-pct / --reentry-* / --max-stops-per-token-day / "
+              "--no-entry-volume-drop-pct) : donne un état et un journal séparés, "
               "pour ne pas mélanger avec les vrais comptes papier. Ex. : --state-file state_test.json "
               "--trade-log trades_test.jsonl")
+        sys.exit(1)
+    if (args.reentry_cooldown_min < 0 or args.max_stops_per_token_day < 0 or args.no_entry_volume_drop_pct < 0
+            or args.no_entry_volume_drop_pct >= 100):
+        print("Options de réentrée : valeurs >= 0 (et --no-entry-volume-drop-pct < 100).")
         sys.exit(1)
     if args.gap_buffer_pct < 0 or args.exit_slippage_pct < 0 or args.exit_slippage_pct >= 50:
         print("--gap-buffer-pct et --exit-slippage-pct doivent être >= 0 (et le slippage < 50 %).")

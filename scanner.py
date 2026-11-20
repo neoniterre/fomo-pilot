@@ -226,6 +226,15 @@ class VolumeTracker:
             return None
         return round((1 - vol_h1 / olds[-1]) * 100, 1)
 
+    def peek(self, key: str, vol_h1, now: float | None = None):
+        """Same drop as update() would return, WITHOUT recording a sample (entry check, SPEC_REENTREE rule 4)."""
+        now = time.time() if now is None else now
+        h = [(t, v) for t, v in self.hist.get(key, []) if now - t <= self.keep]
+        olds = [v for t, v in h if now - t >= self.min_age]
+        if vol_h1 is None or not olds or olds[-1] <= 0:
+            return None
+        return round((1 - vol_h1 / olds[-1]) * 100, 1)
+
 
 # --------------------------------------------------------------------------- 30-minute change
 class PriceHistory:

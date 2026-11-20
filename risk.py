@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
@@ -38,6 +39,11 @@ class Rules:
     # its level (CYBERLEEK -12 % -> -20.1 %), DexScreener only refreshes ~every 30 s.
     gap_buffer_pct: float = 0.0       # sizing: risk / (stop + buffer) instead of risk / stop
     exit_slippage_pct: float = 0.0    # paper exits filled X % below the observed price (pessimistic)
+    # TEST options, SPEC_REENTREE (0 / False = off = historical behaviour). Against repeated buys of a falling token.
+    reentry_cooldown_min: float = 0.0     # after a losing / flat exit on a token: no new entry on it for N min
+    reentry_reclaim: bool = False         # after a losing exit: re-buy only if price >= previous entry and vol drop < 30 %
+    max_stops_per_token_day: int = 0      # after N stop-losses on a token the same (Paris) day: no entry until tomorrow
+    no_entry_volume_drop_pct: float = 0.0  # refuse an entry whose 1h volume drop already exceeds this (exit rule)
     # 3. Exit
     tp1_pct: float = 40.0
     tp1_sell: float = 0.40   # fraction of the INITIAL position
@@ -137,13 +143,18 @@ def element_gate(element_desc: str, act: str, pending: dict | None):
 
 class RiskManager:
     def __init__(self, rules: Rules, capital: float, state_path="state.json",
-                 trade_log="trades.jsonl", today_fn=None):
+                 trade_log="trades.jsonl", today_fn=None, now_fn=None):
         self.r = rules
         self.state_path = state_path
         self.trade_log = trade_log
         self.today_fn = today_fn or (lambda: datetime.now().strftime("%Y-%m-%d"))
+        self.now_fn = now_fn or time.time
         self.capital = float(capital)
         self.positions: dict[str, Position] = {}
+        # per-token history for the re-entry rules: {token: {entry_price, loss_exit_ts, last_exit_loss,
+        # stops_day, stops}}. Saved only when not empty, so state.json keeps its exact historical format.
+        self.token_hist: dict[str, dict] = {}
+        self.last_reentry_refusals: list[dict] = []
         self.day = None
         self.day_start_capital = self.capital
         self.daily_pnl = 0.0
@@ -166,6 +177,8 @@ class RiskManager:
             self.trades_today = s["trades_today"]
             self.halted = s["halted"]
             self.positions = {k: Position(**v) for k, v in s["positions"].items()}
+            th = s.get("token_hist")                          # absent in older / real-bot state files
+            self.token_hist = {k: dict(v) for k, v in th.items() if isinstance(v, dict)} if isinstance(th, dict) else {}
         except Exception:
             pass  # corrupt state -> start clean (capital from args)
 
@@ -179,6 +192,8 @@ class RiskManager:
             "halted": self.halted,
             "positions": {k: asdict(v) for k, v in self.positions.items()},
         }
+        if self.token_hist:
+            s["token_hist"] = self.token_hist
         tmp = self.state_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(s, f, indent=2)
@@ -211,9 +226,64 @@ class RiskManager:
                 f"positions={len(self.positions)} daily_pnl=${self.daily_pnl:+.2f} "
                 f"trades_today={self.trades_today} halted={self.halted}")
 
+    # ---------- re-entry rules (TEST options, SPEC_REENTREE) ----------
+    @property
+    def reentry_on(self) -> bool:
+        r = self.r
+        return bool(r.reentry_cooldown_min or r.reentry_reclaim or r.max_stops_per_token_day
+                    or r.no_entry_volume_drop_pct)
+
+    def check_reentry(self, token: str, m: dict) -> list[dict]:
+        """[{rule, reason}] for the re-entry rules that refuse this entry ([] when all options are off)."""
+        r, out = self.r, []
+        if not self.reentry_on:
+            return out
+        now, today = self.now_fn(), self.today_fn()
+        h = self.token_hist.get(token) or {}
+        ts = _f(h.get("loss_exit_ts"))
+        if r.reentry_cooldown_min and ts is not None and now - ts < r.reentry_cooldown_min * 60:
+            left = (r.reentry_cooldown_min * 60 - (now - ts)) / 60
+            out.append({"rule": "cooldown",
+                        "reason": f"réentrée : cooldown après sortie à perte ({left:.0f} min restantes)"})
+        prev = _f(h.get("entry_price"))
+        if r.reentry_reclaim and h.get("last_exit_loss") and prev:
+            price, vd = _f(m.get("price")), _f(m.get("volume_drop_1h_pct"))
+            if price is None or price < prev:
+                out.append({"rule": "reclaim", "reason": f"réentrée : pas de reprise (prix {price} < entrée précédente {prev})"})
+            elif vd is not None and vd >= 30:
+                out.append({"rule": "reclaim", "reason": f"réentrée : pas de reprise (volume -{vd:.0f} % sur 1 h)"})
+        stops = int(h.get("stops") or 0) if h.get("stops_day") == today else 0
+        if r.max_stops_per_token_day and stops >= r.max_stops_per_token_day:
+            out.append({"rule": "max_stops",
+                        "reason": f"réentrée : {stops} stops aujourd'hui sur ce token (max {r.max_stops_per_token_day})"})
+        vd = _f(m.get("volume_drop_1h_pct"))
+        if r.no_entry_volume_drop_pct and vd is not None and vd > r.no_entry_volume_drop_pct:
+            out.append({"rule": "volume_drop",
+                        "reason": f"entrée sur volume en chute ({vd:.0f} % sur 1 h > {r.no_entry_volume_drop_pct:.0f} %)"})
+        return out
+
+    def _record_entry(self, token, entry_price):
+        if self.reentry_on:
+            self.token_hist.setdefault(token, {})["entry_price"] = entry_price
+
+    def _record_exit(self, token, reason, realized):
+        if not self.reentry_on:
+            return
+        h = self.token_hist.setdefault(token, {})
+        loss = reason.startswith(("stop-loss", "volume")) or realized <= 0
+        if loss:
+            h["loss_exit_ts"] = self.now_fn()
+        h["last_exit_loss"] = loss
+        if reason.startswith("stop-loss"):
+            today = self.today_fn()
+            if h.get("stops_day") != today:
+                h["stops_day"], h["stops"] = today, 0
+            h["stops"] = int(h.get("stops") or 0) + 1
+
     # ---------- entry ----------
     def check_entry(self, token: str, m: dict, skip=()) -> list[str]:
         self._roll_day()
+        self.last_reentry_refusals = []
         r, fails = self.r, []
         if self.halted:
             fails.append("circuit breaker active (daily loss limit hit)")
@@ -258,6 +328,11 @@ class RiskManager:
             fails.append("red flags on page: " + ", ".join(str(x) for x in flags[:3]))
         if v["market_cap"] > 0 and v["liquidity_usd"] / v["market_cap"] * 100 < r.min_liq_mcap_pct:
             fails.append("liquidity/market cap < 8%")
+        if "reentry" not in skip:
+            rr = self.check_reentry(token, m)
+            # a refusal is "measured" only when the re-entry rules are the ONLY reason (else it was refused anyway)
+            self.last_reentry_refusals = rr if (rr and not fails) else []
+            fails += [x["reason"] for x in rr]
         return fails
 
     def size_position(self, m: dict, stop_pct: float | None = None):
@@ -293,6 +368,7 @@ class RiskManager:
             high=entry, opened_at=datetime.now(timezone.utc).isoformat(), ref=ref,
         )
         self.trades_today += 1
+        self._record_entry(token, entry)
         slip = (entry / price - 1) * 100 if price else 0.0
         self._log_trade({"mode": mode, "side": "buy", "token": token, "usd": usd,
                          "theoretical_price": price, "fill_price": fill_price,
@@ -340,6 +416,7 @@ class RiskManager:
         fill = fill_price or price
         frac = min(frac, p.remaining_frac)
         realized = frac * p.initial_usd * (fill / p.entry_price - 1)
+        self._record_exit(token, reason, realized)
         self.capital += realized
         self.daily_pnl += realized
         p.remaining_frac = round(p.remaining_frac - frac, 9)
@@ -396,6 +473,9 @@ class RiskManager:
         fails = self.check_entry(token, m)
         if fails:
             out["log"].append(f"ENTRY REFUSED {token}: " + "; ".join(fails))
+            if self.last_reentry_refusals:
+                out["reentry_refused"] = [dict(x, token=token, price=_f(m.get("price")), ref=decision.get("ref", ""))
+                                          for x in self.last_reentry_refusals]
             return out
         size, stop, notes = self.size_position(m)
         if size <= 0:
