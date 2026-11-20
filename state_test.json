@@ -3,7 +3,20 @@
   "day": "2026-11-20",
   "day_start_capital": 29.603639091291768,
   "daily_pnl": 0.5201297846750728,
-  "trades_today": 2,
+  "trades_today": 3,
   "halted": false,
-  "positions": {}
+  "positions": {
+    "FLOAT": {
+      "token": "FLOAT",
+      "entry_price": 0.003111,
+      "initial_usd": 1.2,
+      "stop_pct": 12.0,
+      "high": 0.003111,
+      "remaining_frac": 1.0,
+      "tp1_done": false,
+      "tp2_done": false,
+      "opened_at": "2026-11-20T20:41:45.228548+00:00",
+      "ref": "solana:Bv1a7cEj5aRnJQhMw4kRQqAFesMSd5LwcDnUzq52BMmr"
+    }
+  }
 }

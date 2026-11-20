@@ -14,3 +14,4 @@
 {"mode": "paper", "side": "sell", "token": "FLOAT", "frac": 0.3, "theoretical_price": 0.003222, "fill_price": 0.00318978, "slippage_pct": -1.0, "pnl_usd": 0.1936, "reason": "trailing stop (-12% from high)", "ts": "2026-11-20T20:25:07.051492+00:00"}
 {"mode": "paper", "side": "buy", "token": "FLOAT", "usd": 1.21, "theoretical_price": 0.003375, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-20T20:26:12.669316+00:00"}
 {"mode": "paper", "side": "sell", "token": "FLOAT", "frac": 1.0, "theoretical_price": 0.002955, "fill_price": 0.00292545, "slippage_pct": -1.0, "pnl_usd": -0.1612, "reason": "stop-loss (-12.4%)", "ts": "2026-11-20T20:29:05.318591+00:00"}
+{"mode": "paper", "side": "buy", "token": "FLOAT", "usd": 1.2, "theoretical_price": 0.003111, "fill_price": null, "slippage_pct": 0.0, "stop_pct": 12.0, "ts": "2026-11-20T20:41:45.228579+00:00"}
